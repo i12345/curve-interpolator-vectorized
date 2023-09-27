@@ -509,8 +509,8 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
   getPoints<T extends VectorType>(segments:number, returnType: { new() : T }) : T[]
   getPoints<T extends VectorType>(segments:number, returnType: { new() : T }, from:number) : T[]
   getPoints<T extends VectorType>(segments:number, returnType: { new() : T }, from:number, to:number) : T[]
-  getPoints()
-  getPoints(segments:number)
+  getPoints() : Vector[]
+  getPoints(segments:number) : Vector[]
   getPoints(segments:number, returnType: null, from:number, to:number) : Vector[]
   getPoints(segments = 100, returnType?: { new() : VectorType }, from = 0, to = 1) : Vector[] {
     if (!segments || segments <= 0) throw Error('Invalid arguments passed to getPoints(). You must specify at least 1 sample/segment.')
