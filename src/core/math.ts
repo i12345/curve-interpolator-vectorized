@@ -1,3 +1,4 @@
+import { NumberArrayLike, arrayLike } from './array';
 import {
   Vector,
 } from './interfaces';
@@ -171,6 +172,41 @@ export function magnitude(v:Vector) : number {
   return Math.sqrt(sumOfSquares);
 }
 
+export function magnitude_vectorized<
+    VectorArray extends NumberArrayLike,
+    MagnitudeArray extends NumberArrayLike
+  >(dimensionality: number, v: VectorArray, magnitudes: MagnitudeArray = <MagnitudeArray><unknown>arrayLike(v, { divisor: dimensionality }), skip?: Uint8Array): MagnitudeArray {
+  const n = magnitudes.length;
+  let v_offset = 0
+  let j: number
+  let sumOfSquares: number
+
+  if (skip) {
+    for (let i = 0; i < n; i++) {
+      if (skip[i] !== 0) continue;
+
+      sumOfSquares = 0;
+      for (j = 0; j < dimensionality; j++) {
+        sumOfSquares += v[v_offset] * v[v_offset]
+        v_offset++;
+      }
+      magnitudes[i] = Math.sqrt(sumOfSquares);
+    }
+  }
+  else {
+    for (let i = 0; i < n; i++) {
+      sumOfSquares = 0;
+      for (j = 0; j < dimensionality; j++) {
+        sumOfSquares += v[v_offset] * v[v_offset]
+        v_offset++;
+      }
+      magnitudes[i] = Math.sqrt(sumOfSquares);
+    }
+  }
+
+  return magnitudes;
+}
+
 /**
  * Calculate the distance between two points
  * @param p1 coordinates of point 1
@@ -180,6 +216,51 @@ export function magnitude(v:Vector) : number {
 export function distance(p1:Vector, p2:Vector) : number {
   const sqrs = sumOfSquares(p1, p2);
   return sqrs === 0 ? 0 : Math.sqrt(sqrs);
+}
+
+export function distance_vectorized<
+    VectorArray extends NumberArrayLike,
+    DistanceArray extends NumberArrayLike
+  >(
+    dimensionality: number,
+    p1: VectorArray,
+    p2: VectorArray,
+    distances: DistanceArray = <DistanceArray><unknown>arrayLike(p1, { divisor: dimensionality }),
+    skip?: Uint8Array
+  ): DistanceArray {
+  const n = p1.length / dimensionality
+
+  let sqrs: number
+  let p_offset = 0
+  let j: number
+  let dx: number
+
+  if (skip) {
+    for (let i = 0; i < n; i++) {
+      if (skip[i] !== 0) continue
+      
+      sqrs = 0;
+      for (j = 0; j < dimensionality; j++) {
+        dx = p1[p_offset] - p2[p_offset]
+        sqrs += dx * dx
+        p_offset++
+      }
+      distances[i] = sqrs === 0 ? 0 : Math.sqrt(sqrs)
+    }
+  }
+  else {
+    for (let i = 0; i < n; i++) {
+      sqrs = 0;
+      for (j = 0; j < dimensionality; j++) {
+        dx = p1[p_offset] - p2[p_offset]
+        sqrs += dx * dx
+        p_offset++
+      }
+      distances[i] = sqrs === 0 ? 0 : Math.sqrt(sqrs)
+    }
+  }
+  
+  return distances
 }
 
 /**

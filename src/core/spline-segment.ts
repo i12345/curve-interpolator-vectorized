@@ -1,4 +1,5 @@
-import { NumArray4, Vector, CurveParameters, SegmentFunction } from "./interfaces";
+import { IntegerNumberArrayLike, NumberArrayLike, arrayLike } from "./array";
+import { NumArray4, Vector, CurveParameters, SegmentFunction, SegmentFunction_vectorized } from "./interfaces";
 import { EPS, getCubicRoots, sumOfSquares } from "./math";
 import { clamp } from "./utils";
 
@@ -41,7 +42,7 @@ export function calculateCoefficients(p0: Vector, p1:Vector, p2:Vector, p3:Vecto
   const tension = Number.isFinite(options.tension) ? options.tension : 0.5;
   const alpha = Number.isFinite(options.alpha) ? options.alpha : null;
   const knotSequence = alpha > 0 ? calcKnotSequence(p0, p1, p2, p3, alpha) : null;
-  const coefficientsList = new Array(p0.length);
+  const coefficientsList = new Array<NumArray4>(p0.length);
 
   for (let k = 0; k < p0.length; k++) {
     let u = 0, v = 0;
@@ -83,6 +84,71 @@ export function valueAtT(t: number, coefficients: NumArray4) : number {
   return a * t3 + b * t2 + c * t + d;
 }
 
+export function valueAtT_vectorized<
+    TArray extends NumberArrayLike,
+    VectorArray extends NumberArrayLike,
+  >(
+    t: TArray,
+    coefficient_indices: IntegerNumberArrayLike,
+    dimensionality: number,
+    vectorized_coefficients: Float64Array,
+    results: VectorArray = <VectorArray><unknown>arrayLike(t, dimensionality),
+    skip?: Uint8Array
+): VectorArray {
+  const n = t.length
+  
+  let t_i: number
+  let t2: number
+  let t3: number
+
+  let coefficients_offset: number
+  let a: number
+  let b: number
+  let c: number
+  let d: number
+  let dimension: number
+  let results_offset = 0
+  const dimensionality_times_4 = 4 * dimensionality
+
+  if (skip) {
+    for (let i = 0; i < n; i++) {
+      if (skip[i] !== 0) {
+        results_offset += dimensionality;
+        continue;
+      }
+
+      t_i = t[i];
+      t2 = t_i * t_i;
+      t3 = t_i * t2;
+      coefficients_offset = dimensionality_times_4 * coefficient_indices[i];
+      for (dimension = 0; dimension < dimensionality; dimension++) {
+        a = vectorized_coefficients[coefficients_offset++];
+        b = vectorized_coefficients[coefficients_offset++];
+        c = vectorized_coefficients[coefficients_offset++];
+        d = vectorized_coefficients[coefficients_offset++];
+        results[results_offset++] = a * t3 + b * t2 + c * t_i + d;
+      }
+    }
+  }
+  else {
+    for (let i = 0; i < n; i++) {
+      t_i = t[i];
+      t2 = t_i * t_i;
+      t3 = t_i * t2;
+      coefficients_offset = dimensionality_times_4 * coefficient_indices[i];
+      for (dimension = 0; dimension < dimensionality; dimension++) {
+        a = vectorized_coefficients[coefficients_offset++];
+        b = vectorized_coefficients[coefficients_offset++];
+        c = vectorized_coefficients[coefficients_offset++];
+        d = vectorized_coefficients[coefficients_offset++];
+        results[results_offset++] = a * t3 + b * t2 + c * t_i + d;
+      }
+    }
+  }
+
+  return results;
+}
+
 /**
  * Calculates vector component for the derivative of the curve segment at time t
  * @param t time along curve segment
@@ -95,6 +161,39 @@ export function derivativeAtT(t: number, coefficients: NumArray4) : number {
   return 3 * a * t2 + 2 * b * t + c;
 }
 
+export function derivativeAtT_vectorized<
+    TArray extends NumberArrayLike,
+    VectorArray extends NumberArrayLike,
+  >(
+    t: TArray,
+    coefficient_indices: IntegerNumberArrayLike,
+    dimensionality: number,
+    vectorized_coefficients: Float64Array,
+    results: VectorArray = <VectorArray><unknown>arrayLike(t)
+): VectorArray {
+  const n = t.length
+  
+  let t_i: number
+  let t2: number
+
+  let coefficients_offset: number
+  let a: number
+  let b: number
+  let c: number
+
+  for (let i = 0; i < n; i++) {
+    t_i = t[i]
+    t2 = t_i * t_i
+    coefficients_offset = 4 * coefficient_indices[i]
+    a = vectorized_coefficients[coefficients_offset + 0]
+    b = vectorized_coefficients[coefficients_offset + 1]
+    c = vectorized_coefficients[coefficients_offset + 2]
+    results[i] = 3 * a * t2 + 2 * b * t_i + c;
+  }
+  
+  return results
+}
+
 /**
  * Calculates vector component for the second derivative of the curve segment at time t
  * @param t time along curve segment
@@ -104,6 +203,37 @@ export function derivativeAtT(t: number, coefficients: NumArray4) : number {
 export function secondDerivativeAtT(t: number, coefficients: NumArray4) : number {
   const [a, b] = coefficients;
   return 6 * a * t + 2 * b;
+}
+
+export function secondDerivativeAtT_vectorized<
+    TArray extends NumberArrayLike,
+    VectorArray extends NumberArrayLike,
+  >(
+    t: TArray,
+    coefficient_indices: IntegerNumberArrayLike,
+    dimensionality: number,
+    vectorized_coefficients: Float64Array,
+    results: VectorArray = <VectorArray><unknown>arrayLike(t)
+): VectorArray {
+  const n = t.length
+  
+  let t_i: number
+  let t2: number
+
+  let coefficients_offset: number
+  let a: number
+  let b: number
+
+  for (let i = 0; i < n; i++) {
+    t_i = t[i]
+    t2 = t_i * t_i
+    coefficients_offset = 4 * coefficient_indices[i]
+    a = vectorized_coefficients[coefficients_offset + 0]
+    b = vectorized_coefficients[coefficients_offset + 1]
+    results[i] = 6 * a * t_i + 2 * b;
+  }
+  
+  return results
 }
 
 /**
@@ -137,5 +267,32 @@ export function evaluateForT(func: SegmentFunction, t:number, coefficients: NumA
   }
 
   return target;
+}
+
+/**
+ * Symmetric vectorized function for convenience function for evaluating
+ * segment functions for all components of a vector. It calls the given
+ * SegmentFunction_vectorized
+ * @param func SegmentFunction_vectorized to evaluate
+ * @param t times along curve segment
+ * @param coefficients_segment_indices 
+ * @param dimensionality dimensionality of coefficients and result vectors
+ * @param coefficients_vectorized coefficients for curve function (for each component)
+ * @param target target vector
+ * @returns vector
+ */
+export function evaluateForT_vectorized<
+    TArray extends NumberArrayLike,
+    VectorArray extends NumberArrayLike,
+  >(
+    func: SegmentFunction_vectorized<TArray, VectorArray>,
+    t: TArray,
+    coefficients_segment_indices: IntegerNumberArrayLike,
+    dimensionality: number,
+    coefficients_vectorized: Float64Array,
+    target: VectorArray = <VectorArray><unknown>arrayLike(t, dimensionality),
+    skip?: Uint8Array
+  ): VectorArray {
+  return func(t, coefficients_segment_indices, dimensionality, coefficients_vectorized, target, skip)
 }
 

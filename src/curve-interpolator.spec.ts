@@ -75,6 +75,21 @@ describe('curve-interpolator.ts', () => {
     expect(() => interp.getPoints()).not.to.throw();
   });
 
+  it('should be able to get multiple, evenly distributed points, on curve using _vectorized method', () => {
+    const interp = new CurveInterpolator(points, { tension: 0, alpha: 0 });
+
+    const result = interp.getPoints_vectorized(100);
+    expect(result.length).to.eq(2 * 101);
+    expect(result[(2 * 0) + 0]).to.eq(points[0][0]);
+    expect(result[(2 * 0) + 1]).to.eq(points[0][1]);
+    expect(result[(2 * 100) + 0]).to.eq(points[points.length - 1][0]);
+    expect(result[(2 * 100) + 1]).to.eq(points[points.length - 1][1]);
+    expect(result).to.be.instanceof(Float64Array);
+
+    expect(() => interp.getPoints_vectorized(0)).to.throw();
+    expect(() => interp.getPoints_vectorized()).not.to.throw();
+  });
+
   it('should be able to lookup values on curve', () => {
     const interp = new CurveInterpolator(points, { tension: 0, alpha: 0 });
 

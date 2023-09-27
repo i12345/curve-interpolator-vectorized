@@ -1,9 +1,10 @@
 import { AbstractCurveMapper } from "./abstract-curve-mapper";
 import { SplineSegmentOptions } from "../core/interfaces";
 import { getGaussianQuadraturePointsAndWeights } from "./gauss";
-import { derivativeAtT, evaluateForT } from "../core/spline-segment";
-import { magnitude } from "../core/math";
-import { binarySearch, clamp } from "../core/utils";
+import { derivativeAtT, derivativeAtT_vectorized, evaluateForT, evaluateForT_vectorized } from "../core/spline-segment";
+import { magnitude, magnitude_vectorized } from "../core/math";
+import { binarySearch, binarySearch_vectorized, binarySearch_vectorized_specific, clamp } from "../core/utils";
+import { IntegerNumberArrayLike, NumberArrayLike, arrayLike } from "../core/array";
 
 export interface CurveLengthCalculationOptions extends SplineSegmentOptions {
   /* Gaussian quadrature weights and abscissae */
@@ -21,9 +22,10 @@ export interface CurveLengthCalculationOptions extends SplineSegmentOptions {
  * to fit a monotone piecewise cubic function using the approach suggested here:
  * https://stackoverflow.com/questions/35275073/uniform-discretization-of-bezier-curve
  */
-export class NumericalCurveMapper extends AbstractCurveMapper {
+export class NumericalCurveMapper<VectorArray extends NumberArrayLike> extends AbstractCurveMapper<VectorArray> {
   _nSamples = 21;
   _gauss: number[][];
+  _gauss_vectorized: Float64Array;
 
   /**
    *
@@ -34,6 +36,13 @@ export class NumericalCurveMapper extends AbstractCurveMapper {
   constructor(nQuadraturePoints = 24, nInverseSamples = 21, onInvalidateCache?: () => void) {
     super(onInvalidateCache);
     this._gauss = getGaussianQuadraturePointsAndWeights(nQuadraturePoints);
+    
+    this._gauss_vectorized = new Float64Array(2 * this._gauss.length);
+    for (let i = 0; i < this._gauss.length; i++) {
+      this._gauss_vectorized[(2 * i) + 0] = this._gauss[i][0];
+      this._gauss_vectorized[(2 * i) + 1] = this._gauss[i][1];
+    }
+
     this._nSamples = nInverseSamples;
   }
 
@@ -46,7 +55,7 @@ export class NumericalCurveMapper extends AbstractCurveMapper {
     this._cache['samples'] = null;
   }
 
-  get arcLengths() {
+  get arcLengths(): Float64Array {
     if (!this._cache['arcLengths']) {
       this._cache['arcLengths'] = this.computeArcLengths();
     }
@@ -130,23 +139,125 @@ export class NumericalCurveMapper extends AbstractCurveMapper {
     return z * sum;
   }
 
+  computeArcLength_vectorized<
+      IndexArray extends IntegerNumberArrayLike,
+      TArray extends NumberArrayLike,
+      LengthArray extends NumberArrayLike
+    >(
+      index: IndexArray,
+      t0: TArray,
+      t1: TArray,
+      length: LengthArray = <LengthArray><unknown>arrayLike(t0),
+      skip?: Uint8Array
+    ) {
+    const n = index.length;
+
+    const prevSkip = skip;
+    const currentSkip = new Uint8Array(n);
+
+    if (prevSkip) {
+      for (let i = 0; i < n; i++) {
+        if (prevSkip[i] !== 0) {
+          currentSkip[i] = prevSkip[i];
+          continue;
+        }
+
+        if (t0[i] === t1[i]) {
+          currentSkip[i] = 1;
+          length[i] = 0;
+        }
+      }
+    }
+    else {
+      for (let i = 0; i < n; i++) {
+        if (t0[i] === t1[i]) {
+          currentSkip[i] = 1;
+          length[i] = 0;
+        }
+      }
+    }
+
+    const gauss_vectorized = this._gauss_vectorized
+    const gauss_vectorized_length = gauss_vectorized.length
+    const gauss_length = gauss_vectorized_length / 2
+    let gauss_vectorized_offset: number
+
+    let t0_i: number
+    let z_i: number
+    const z = arrayLike(t1);
+    let sum: number
+    let T: number
+    let C: number
+    const t = arrayLike(t1);
+    const coefficients_indices = new Uint32Array(gauss_length * n)
+    const insideSkip = new Uint8Array(gauss_length * n);
+
+    let inside_offset = 0;
+    let k: number
+
+    for (let i = 0; i < n; i++) {
+      if (currentSkip[i] !== 0) {
+        for (let k = 0; k < gauss_length; k++)
+          insideSkip[inside_offset++] = 1;
+
+        continue;
+      }
+
+      t0_i = t0[i];
+      z[i] = z_i = (t0_i + t1[i]) * 0.5;
+
+      for (gauss_vectorized_offset = 0; gauss_vectorized_offset < gauss_vectorized_length; gauss_vectorized_offset += 2) {
+        T = gauss_vectorized[gauss_vectorized_offset];
+        
+        t[inside_offset] = z_i * T + z_i + t0_i;
+        coefficients_indices[inside_offset] = i;
+        inside_offset++;
+      }
+    }
+
+    const dtln = magnitude_vectorized(this.dimensionality, evaluateForT_vectorized(derivativeAtT_vectorized, t, coefficients_indices, this.dimensionality, this.getCoefficients_vectorized(), undefined, insideSkip));
+
+    inside_offset = 0;
+
+    for (let i = 0; i < n; i++) {
+      if (currentSkip[i] !== 0) {
+        inside_offset += gauss_length;
+        continue;
+      }
+
+      sum = 0;
+
+      for (gauss_vectorized_offset = 1; gauss_vectorized_offset < gauss_vectorized_length; gauss_vectorized_offset += 2) {
+        C = gauss_vectorized[gauss_vectorized_offset];
+        sum += C * dtln[inside_offset++];
+      }
+
+      length[i] = z[i] * sum;
+    }
+
+    return length;
+  }
+
   /**
    * Calculate a running sum of arc length for mapping a position on the curve (u)
    * to the position at the corresponding curve segment (t).
    * @returns array with accumulated curve segment arc lengths
    */
-  computeArcLengths() : number[] {
+  computeArcLengths() : Float64Array {
     if (!this.points) return undefined;
-    const lengths = [];
-    lengths.push(0);
-
+    
     const nPoints = this.closed ? this.points.length : this.points.length - 1;
+    
+    const lengths = new Float64Array(1 + nPoints);
+    lengths[0] = 0;
+
     let tl = 0;
     for (let i = 0; i < nPoints; i++) {
       const length = this.computeArcLength(i);
       tl += length;
-      lengths.push(tl);
+      lengths[i + 1] = tl;
     }
+
     return lengths;
   }
 
@@ -184,6 +295,119 @@ export class NumericalCurveMapper extends AbstractCurveMapper {
     return ((di * ld + ci) * ld + tdi) * ld + ti;
   }
 
+  inverse_vectorized<
+      IdxArray extends IntegerNumberArrayLike,
+      LenArray extends NumberArrayLike,
+      ResultArray extends NumberArrayLike = LenArray
+    >(
+      idx: IdxArray,
+      len: LenArray,
+      result: ResultArray = <ResultArray><unknown>arrayLike(len),
+      skip?: Uint8Array
+    ): ResultArray {
+    const n = idx.length;
+    const idx_count = <number>Math.max.apply(undefined, idx) + 1;
+    const uint32_invalid = 0xFFFFFFFF;
+
+    const nCoeff = this._nSamples - 1;
+    const step = 1.0 / nCoeff;
+    
+    const lengths_map = new Array<NumberArrayLike>(idx_count);
+    const slopes_map = new Array<NumberArrayLike>(idx_count);
+    const cis_map = new Array<NumberArrayLike>(idx_count);
+    const dis_map = new Array<NumberArrayLike>(idx_count);
+    const length_map = new Uint32Array(idx_count).fill(uint32_invalid);
+    
+    //TODO: consider if whole curve [0, idx_max] should be computed
+    
+    let idx_k: number
+
+    if (skip) {
+      for (let k = 0; k < n; k++) {
+        if (skip[k] !== 0) continue;
+
+        idx_k = idx[k];
+
+        if (length_map[idx_k] === uint32_invalid) {
+          const [lengths, slopes, cis, dis] = this.getSamples(idx_k);
+          lengths_map[idx_k] = lengths;
+          slopes_map[idx_k] = slopes;
+          cis_map[idx_k] = cis;
+          dis_map[idx_k] = dis;
+          length_map[idx_k] = lengths[lengths.length - 1];
+        }
+      }
+    }
+    else {
+      for (let k = 0; k < n; k++) {
+        idx_k = idx[k];
+
+        if (length_map[idx_k] === uint32_invalid) {
+          const [lengths, slopes, cis, dis] = this.getSamples(idx_k);
+          lengths_map[idx_k] = lengths;
+          slopes_map[idx_k] = slopes;
+          cis_map[idx_k] = cis;
+          dis_map[idx_k] = dis;
+          length_map[idx_k] = lengths[lengths.length - 1];
+        }
+      }
+    }
+
+    const prevSkip = skip;
+    const currentSkip = new Uint8Array(n);
+
+    for (let k = 0; k < n; k++) {
+      if (prevSkip[k] !== 0) {
+        currentSkip[k] = prevSkip[k];
+        continue;
+      }
+
+      if (len[k] >= length_map[idx[k]]) {
+        currentSkip[k] = 1;
+        result[k] = 1.0;
+      }
+      else if (len[k] <= 0) {
+        currentSkip[k] = 1;
+        result[k] = 0.0;
+      }
+    }
+
+    const i = binarySearch_vectorized_specific(len, idx, lengths_map, undefined, currentSkip)
+
+    let i_k: number
+    let lengths_idx_i: number
+    let len_k: number
+
+    let ti: number
+    let tdi: number
+    let di: number
+    let ci: number
+    let ld: number
+
+    for (let k = 0; k < n; k++) {
+      if (currentSkip[k] !== 0) continue;
+
+      i_k = i[k];
+      idx_k = idx[k];
+      lengths_idx_i = lengths_map[idx_k][i_k];
+      len_k = len[k];
+
+      ti = i_k * step;
+
+      if (lengths_idx_i === len_k)
+        result[k] = ti;
+      else {
+        tdi = slopes_map[idx_k][i_k];
+        di = dis_map[idx_k][i_k];
+        ci = cis_map[idx_k][i_k];
+        ld = len_k - lengths_idx_i;
+        result[k] = ((di * ld + ci) * ld + tdi) * ld + ti;
+      }
+    }
+
+    return result;
+  }
+
   /**
    * Get curve length at u
    * @param u normalized uniform position along the spline curve
@@ -191,6 +415,26 @@ export class NumericalCurveMapper extends AbstractCurveMapper {
    */
   lengthAt(u: number) : number {
     return u * this.arcLengths[this.arcLengths.length - 1];
+  }
+
+  lengthAt_vectorized<UArray extends NumberArrayLike, LengthArray extends NumberArrayLike>(u: UArray, length: LengthArray = <LengthArray><unknown>arrayLike(u), skip?: Uint8Array): LengthArray {
+    const n = u.length;
+    const arcLength_last = this.arcLengths[this.arcLengths.length - 1];
+
+    if (skip) {
+      for (let i = 0; i < n; i++) {
+        if (skip[i] !== 0) continue;
+
+        length[i] = u[i] * arcLength_last;
+      }
+    }
+    else {
+      for (let i = 0; i < n; i++) {
+        length[i] = u[i] * arcLength_last;
+      }
+    }
+
+    return length;
   }
 
   /**
@@ -212,6 +456,74 @@ export class NumericalCurveMapper extends AbstractCurveMapper {
     const len = targetArcLength - arcLengths[i];
     const fraction = this.inverse(i, len);
     return (i + fraction) / (il - 1);
+  }
+
+  getT_vectorized<UArray extends NumberArrayLike, TArray extends NumberArrayLike>(u: UArray, t: TArray = <TArray><unknown>arrayLike(u), skip?: Uint8Array): TArray {
+    const n = u.length
+
+    const prevSkip = skip;
+    const currentSkip = new Uint8Array(n);
+    if (prevSkip) currentSkip.set(prevSkip);
+
+    const arcLengths = this.arcLengths;
+    const il = arcLengths.length;
+    const il_minus_1 = il - 1;
+    
+    const targetArcLengths = new Float64Array(n);
+    const arcLength_last = arcLengths[il_minus_1];
+    
+    if (prevSkip) {
+      for (let idx = 0; idx < n; idx++) {
+        if (prevSkip[idx] !== 0) continue;
+
+        targetArcLengths[idx] = u[idx] * arcLength_last;
+      }
+    }
+    else {
+      for (let idx = 0; idx < n; idx++) {
+        targetArcLengths[idx] = u[idx] * arcLength_last;
+      }
+    }
+
+    const i = binarySearch_vectorized(targetArcLengths, arcLengths, undefined, prevSkip);
+
+    let i_idx: number
+
+    if (prevSkip) {
+      for (let idx = 0; idx < n; idx++) {
+        if (prevSkip[idx] !== 0) continue;
+
+        i_idx = i[idx];
+        if (arcLengths[i_idx] === targetArcLengths[idx]) {
+          t[idx] = i_idx / il_minus_1;
+          currentSkip[idx] = 1;
+        }
+      }
+    }
+    else {
+      for (let idx = 0; idx < n; idx++) {
+        i_idx = i[idx];
+        if (arcLengths[i_idx] === targetArcLengths[idx]) {
+          t[idx] = i_idx / il_minus_1;
+          currentSkip[idx] = 1;
+        }
+      }
+    }
+
+    const len = arrayLike(targetArcLengths);
+
+    for (let idx = 0; idx < n; idx++)
+      len[idx] = targetArcLengths[idx] - arcLengths[i[idx]];
+
+    const fraction = this.inverse_vectorized(i, len, undefined, currentSkip);
+
+    for (let idx = 0; idx < n; idx++) {
+      if (currentSkip[idx] !== 0) continue;
+      
+      t[idx] = (i[idx] + fraction[idx]) / il_minus_1;
+    }
+
+    return t
   }
 
   /**
@@ -239,5 +551,92 @@ export class NumericalCurveMapper extends AbstractCurveMapper {
     const fraction = this.computeArcLength(subIdx, 0, t0);
 
     return (l1 + fraction) / totalLength;
+  }
+
+  getU_vectorized<
+      TArray extends NumberArrayLike,
+      UArray extends NumberArrayLike
+    >(
+      t: TArray,
+      u: UArray = <UArray><unknown>arrayLike(t),
+      skip?: Uint8Array
+    ): UArray {
+    const n = t.length;
+
+    const prevSkip = skip;
+    const currentSkip = new Uint8Array(n);
+
+    const arcLengths = this.arcLengths;
+    const al = arcLengths.length - 1;
+    const totalLength = arcLengths[al];
+
+    let t_i: number
+
+    if (prevSkip) {
+      for (let i = 0; i < n; i++) {
+        if (prevSkip[i] !== 0) {
+          currentSkip[i] = prevSkip[i];
+          continue;
+        }
+
+        t_i = t[i];
+
+        if (t_i === 0 || t_i === 1) {
+          currentSkip[i] = 1;
+          u[i] = t_i;
+        }
+      }
+    }
+    else {
+      for (let i = 0; i < n; i++) {
+        t_i = t[i];
+
+        if (t_i === 0 || t_i === 1) {
+          currentSkip[i] = 1;
+          u[i] = t_i;
+        }
+      }
+    }
+
+    let tIdx: number
+    let subIdx_i: number
+    const subIdx = new Uint32Array(n);
+
+    let l1_i: number
+    const l1 = arrayLike(arcLengths);
+
+    const t0 = arrayLike(t);
+
+    for (let i = 0; i < n; i++) {
+      if (currentSkip[i] !== 0) continue;
+
+      t_i = t[i];
+
+      // need to de-normalize t to find the matching length
+      tIdx = t_i * al;
+
+      subIdx_i = Math.floor(tIdx);
+      l1_i = arcLengths[subIdx_i];
+
+      if (tIdx === subIdx_i) {
+        u[i] = l1_i / totalLength;
+        currentSkip[i] = 1;
+      }
+      else {
+        l1[i] = l1_i;
+        subIdx[i] = subIdx_i;
+        t0[i] = tIdx - subIdx_i;
+      }
+    }
+
+    const fraction = this.computeArcLength_vectorized(subIdx, arrayLike(t0), t0);
+
+    for (let i = 0; i < n; i++) {
+      if (currentSkip[i] !== 0) continue;
+
+      u[i] = (l1[i] + fraction[i]) / totalLength;
+    }
+
+    return u;
   }
 }

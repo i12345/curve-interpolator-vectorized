@@ -1,3 +1,5 @@
+import { IntegerNumberArrayLike, NumberArrayLike } from "./array";
+
 /**
  * Array of four number items
  */
@@ -9,17 +11,24 @@ export type NumArray4 = [number, number, number, number];
 export type Vector = (number[] | VectorType);
 
 export type SegmentFunction = (t: number, coefficients: NumArray4) => number;
-export interface CurveMapper {
+export type SegmentFunction_vectorized<TArray extends NumberArrayLike, VectorArray extends NumberArrayLike> = (t: TArray, coefficients_indices: IntegerNumberArrayLike, dimensionality: number, coefficients_vectorized: Float64Array, results?: VectorArray, skip?: Uint8Array) => VectorArray
+export interface CurveMapper<VectorArray extends NumberArrayLike = Float64Array> {
   alpha: number,
   tension: number,
   points: Vector[],
+  points_vectorized: VectorArray,
   closed: boolean,
 
   evaluateForT: (func:SegmentFunction, t:number, target?:VectorType) => Vector,
+  evaluateForT_vectorized: <TArray extends NumberArrayLike>(func:SegmentFunction_vectorized<TArray, VectorArray>, t:TArray, target?: VectorArray, skip?: Uint8Array) => VectorArray,
   lengthAt: (u: number) => number,
+  lengthAt_vectorized: <UArray extends NumberArrayLike, LengthArray extends NumberArrayLike>(u: UArray, length?: LengthArray, skip?: Uint8Array) => LengthArray,
   getT: (u: number) => number,
+  getT_vectorized: <UArray extends NumberArrayLike, TArray extends NumberArrayLike>(u: UArray, t?: TArray, skip?: Uint8Array) => TArray,
   getU: (t: number) => number,
+  getU_vectorized: <TArray extends NumberArrayLike, UArray extends NumberArrayLike>(t: TArray, u?: UArray, skip?: Uint8Array) => UArray,
   getCoefficients: (idx: number) => NumArray4[],
+  getCoefficients_vectorized: () => Float64Array,
   reset: () => void,
 }
 

@@ -1,15 +1,16 @@
 import { AbstractCurveMapper } from "./abstract-curve-mapper";
 import { Vector } from "../core/interfaces";
-import { distance } from "../core/math";
-import { binarySearch } from "../core/utils";
-import { valueAtT } from "../core/spline-segment";
+import { distance, distance_vectorized } from "../core/math";
+import { binarySearch, binarySearch_vectorized } from "../core/utils";
+import { valueAtT, valueAtT_vectorized } from "../core/spline-segment";
+import { NumberArrayLike, arrayLike } from "../core/array";
 
 /**
  * Approximate spline curve by subdividing it into smaller linear
  * line segments. Used to approximate length and mapping between
  * uniform (u) and non-uniform (t) time along curve.
  */
-export class SegmentedCurveMapper extends AbstractCurveMapper {
+export class SegmentedCurveMapper<VectorArray extends NumberArrayLike> extends AbstractCurveMapper<VectorArray> {
 
   _subDivisions: number;
 
@@ -23,7 +24,7 @@ export class SegmentedCurveMapper extends AbstractCurveMapper {
     this._subDivisions = subDivisions;
   }
 
-  get arcLengths() {
+  get arcLengths(): Float64Array {
     if (!this._cache['arcLengths']) {
       this._cache['arcLengths'] = this.computeArcLengths();
     }
@@ -43,16 +44,16 @@ export class SegmentedCurveMapper extends AbstractCurveMapper {
    * Used for mapping between t and u along the curve.
    */
   computeArcLengths() {
-    const lengths = [];
+    const lengths = new Float64Array(1 + this._subDivisions);
     let current: Vector, last = this.evaluateForT(valueAtT, 0);
     let sum = 0;
 
-    lengths.push(0);
+    lengths[0] = 0;
 
     for (let p = 1; p <= this._subDivisions; p++) {
       current = this.evaluateForT(valueAtT, p / this._subDivisions);
       sum += distance(current, last);
-      lengths.push(sum);
+      lengths[p] = sum;
       last = current;
     }
     return lengths;
@@ -66,6 +67,26 @@ export class SegmentedCurveMapper extends AbstractCurveMapper {
   lengthAt(u: number) {
     const arcLengths = this.arcLengths;
     return u * arcLengths[arcLengths.length - 1];
+  }
+
+  lengthAt_vectorized<UArray extends NumberArrayLike, LengthArray extends NumberArrayLike>(u: UArray, length: LengthArray = <LengthArray><unknown>arrayLike(u), skip?: Uint8Array): LengthArray {
+    const n = u.length
+    const arcLengths = this.arcLengths;
+    const arcLength_last = arcLengths[arcLengths.length - 1];
+
+    if (skip) {
+      for (let i = 0; i < n; i++) {
+        if (skip[i] !== 0) continue;
+
+        length[i] = u[i] * arcLength_last;
+      }
+    }
+    else {
+      for (let i = 0; i < n; i++)
+        length[i] = u[i] * arcLength_last;
+    }
+    
+    return length;
   }
 
   /**
@@ -93,6 +114,75 @@ export class SegmentedCurveMapper extends AbstractCurveMapper {
 
     // add that fractional amount to t
     return (i + segmentFraction) / (il - 1);
+  }
+
+  getT_vectorized<UArray extends NumberArrayLike, TArray extends NumberArrayLike>(u: UArray, t: TArray = <TArray><unknown>arrayLike(u), skip?: Uint8Array): TArray {
+    const n = u.length;
+    const arcLengths = this.arcLengths;
+    const il = arcLengths.length;
+    const il_minus_1 = il - 1
+    const arcLengths_last = arcLengths[il_minus_1];
+    const targetArcLength = t;
+
+    if (skip) {
+      for (let i = 0; i < n; i++) {
+        if (skip[i] !== 0) continue;
+
+        targetArcLength[i] = u[i] * arcLengths_last;
+      }
+    }
+    else
+      for (let i = 0; i < n; i++)
+        targetArcLength[i] = u[i] * arcLengths_last;
+
+    const i = binarySearch_vectorized(targetArcLength, arcLengths, undefined, skip);
+
+    let i_k: number
+    let arcLength_i: number
+    let targetArcLength_k: number
+    let lengthBefore: number
+    let lengthAfter: number
+    let segmentLength: number
+    let segmentFraction: number
+
+    if (skip) {
+      for (let k = 0; k < n; k++) {
+        if (skip[k] !== 0) continue;
+
+        i_k = i[k];
+        arcLength_i = arcLengths[i_k];
+        targetArcLength_k = targetArcLength[k];
+      
+        if (arcLength_i === targetArcLength_k)
+          t[k] = i_k / il_minus_1;
+        else {
+          lengthBefore = arcLengths[i_k];
+          lengthAfter = arcLengths[i_k + 1];
+          segmentLength = lengthAfter - lengthBefore;
+          segmentFraction = (targetArcLength_k - lengthBefore) / segmentLength;
+          t[k] = (i_k + segmentFraction) / il_minus_1;
+        }
+      }
+    }
+    else {
+      for (let k = 0; k < n; k++) {
+        i_k = i[k];
+        arcLength_i = arcLengths[i_k];
+        targetArcLength_k = targetArcLength[k];
+      
+        if (arcLength_i === targetArcLength_k)
+          t[k] = i_k / il_minus_1;
+        else {
+          lengthBefore = arcLengths[i_k];
+          lengthAfter = arcLengths[i_k + 1];
+          segmentLength = lengthAfter - lengthBefore;
+          segmentFraction = (targetArcLength_k - lengthBefore) / segmentLength;
+          t[k] = (i_k + segmentFraction) / il_minus_1;
+        }
+      }
+    }
+
+    return t
   }
 
   /**
@@ -126,6 +216,89 @@ export class SegmentedCurveMapper extends AbstractCurveMapper {
     //const l = l1 + (tIdx - subIdx) * (l2 - l1);
 
     return l / totalLength;
+  }
 
+  getU_vectorized<TArray extends NumberArrayLike, UArray extends NumberArrayLike>(t: TArray, u: UArray = <UArray><unknown>arrayLike(t), skip?: Uint8Array): UArray {
+    const n = t.length;
+    const prevSkip = skip
+    const currentSkip = new Uint8Array(n).fill(0)
+
+    const arcLengths = this.arcLengths;
+    const al = arcLengths.length - 1;
+    const totalLength = arcLengths[al];
+
+    let t_i: number
+    let tIdx: number
+    let subIdx: number
+    let l1_i: number
+
+    const l1 = new Float64Array(n)
+    const t0 = arrayLike(t);
+
+    if (prevSkip) {
+      for (let i = 0; i < n; i++) {
+        if (prevSkip[i] === 1) {
+          currentSkip[i] = 1;
+          continue;
+        }
+
+        t_i = t[i];
+
+        if (t_i === 0 || t_i === 1) {
+          u[i] = t_i;
+          currentSkip[i] = 1;
+          continue;
+        }
+    
+        tIdx = t_i * al;
+        subIdx = Math.floor(tIdx);
+        l1_i = arcLengths[subIdx];
+
+        if (tIdx === subIdx) {
+          u[i] = l1_i / totalLength;
+          currentSkip[i] = 1;
+          continue;
+        }
+
+        l1[i] = l1_i
+        t0[i] = subIdx / al;
+      }
+    }
+    else {
+      for (let i = 0; i < n; i++) {
+        t_i = t[i];
+
+        if (t_i === 0 || t_i === 1) {
+          u[i] = t_i;
+          currentSkip[i] = 1;
+          continue;
+        }
+    
+        tIdx = t_i * al;
+        subIdx = Math.floor(tIdx);
+        l1_i = arcLengths[subIdx];
+
+        if (tIdx === subIdx) {
+          u[i] = l1_i / totalLength;
+          currentSkip[i] = 1;
+          continue;
+        }
+
+        l1[i] = l1_i
+        t0[i] = subIdx / al;
+      }
+    }
+
+    const p0 = this.evaluateForT_vectorized(valueAtT_vectorized, t0, undefined, currentSkip)
+    const p1 = this.evaluateForT_vectorized(valueAtT_vectorized, t, undefined, currentSkip)
+    const distances = distance_vectorized(this.dimensionality, p0, p1, u, currentSkip);
+
+    for (let i = 0; i < n; i++) {
+      if (currentSkip[i] === 1) continue;
+
+      u[i] = (l1[i] + distances[i]) / totalLength;
+    }
+
+    return u;
   }
 }

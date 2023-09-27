@@ -1,3 +1,4 @@
+import { IntegerNumberArrayLike, NumberArrayLike, arrayLike } from './array';
 import {
   Vector,
 } from './interfaces';
@@ -62,3 +63,43 @@ export function getSegmentIndexAndT(ct: number, points: Vector[], closed = false
   return { index, weight };
 }
 
+export function getSegmentIndexAndT_vectorized<
+    TArray extends NumberArrayLike,
+    VectorArray extends NumberArrayLike,
+    IndexArray extends IntegerNumberArrayLike
+  >(
+    ct: TArray,
+    dimensionality: number,
+    points_vectorized: VectorArray,
+    closed = false,
+    skip?: Uint8Array
+  ): { index: IndexArray, weight: TArray } {
+  const n = ct.length
+  const points_length = points_vectorized.length / dimensionality
+  const nPoints = closed ? points_length : points_length - 1;
+  
+  const index = <IndexArray>new Uint32Array(n)
+  const weight = arrayLike(ct)
+
+  let p: number
+  let index_i: number
+
+  if (skip) {
+    for (let i = 0; i < n; i++) {
+      if (skip[i] !== 0) continue;
+      
+      p = nPoints * ct[i];
+      index[i] = index_i = Math.floor(p);
+      weight[i] = p - index_i;
+    }
+  }
+  else {
+    for (let i = 0; i < n; i++) {
+      p = nPoints * ct[i];
+      index[i] = index_i = Math.floor(p);
+      weight[i] = p - index_i;
+    }
+  }
+
+  return { weight, index };
+}

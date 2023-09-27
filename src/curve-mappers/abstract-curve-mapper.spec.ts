@@ -3,16 +3,26 @@ import * as sinon from 'sinon';
 import { expect } from 'chai';
 import { AbstractCurveMapper } from './abstract-curve-mapper';
 import { points, points3d } from '../../test/test-data';
+import { NumberArrayLike } from '../core/array';
 
 
-class TestMapper extends AbstractCurveMapper {
+class TestMapper extends AbstractCurveMapper<Float64Array> {
   lengthAt(u: number): number {
+    throw new Error('Method not implemented.');
+  }
+  lengthAt_vectorized<UArray extends NumberArrayLike, LengthArray extends NumberArrayLike>(u: UArray, length?: LengthArray): LengthArray {
     throw new Error('Method not implemented.');
   }
   getT(u: number): number {
     throw new Error('Method not implemented.');
   }
+  getT_vectorized<UArray extends NumberArrayLike, TArray extends NumberArrayLike>(u: UArray, t?: TArray): TArray {
+    throw new Error('Method not implemented.');
+  }
   getU(t: number): number {
+    throw new Error('Method not implemented.');
+  }
+  getU_vectorized<TArray extends NumberArrayLike, UArray extends NumberArrayLike>(t: TArray, u?: UArray): UArray {
     throw new Error('Method not implemented.');
   }
 }

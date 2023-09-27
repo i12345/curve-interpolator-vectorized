@@ -1,3 +1,4 @@
+import { IntegerNumberArrayLike, NumberArrayLike } from "./array";
 import { Vector } from "./interfaces";
 
 /**
@@ -103,13 +104,23 @@ export function clamp(value:number, min = 0, max = 1) : number {
   return value;
 }
 
+export function clamp_vectorized<Array extends NumberArrayLike>(values: Array, min = 0, max = 1): Array {
+  let value: number
+  for (let i = 0; i < values.length; i++) {
+    value = values[i]
+    if (value < min) values[i] = min
+    else if(value > max) values[i] = max
+  }
+  return values
+}
+
 /**
  * Finds the index in accumulatedValues of the highest value that is less than or equal to targetValue
  * @param targetValue search term
  * @param accumulatedValues array of accumulated values to search in
  * @returns
  */
-export function binarySearch(targetValue: number, accumulatedValues: number[]) {
+export function binarySearch(targetValue: number, accumulatedValues: NumberArrayLike) {
   const min = accumulatedValues[0];
   const max = accumulatedValues[accumulatedValues.length - 1];
   if (targetValue >= max) {
@@ -137,4 +148,215 @@ export function binarySearch(targetValue: number, accumulatedValues: number[]) {
   }
 
   return Math.max(0, right);
+}
+
+export function binarySearch_vectorized<
+    TargetValuesArray extends NumberArrayLike,
+    AccumulatedValuesArray extends NumberArrayLike = TargetValuesArray,
+    IndicesArray extends IntegerNumberArrayLike = Uint32Array
+  >(
+    targetValues: TargetValuesArray,
+    accumulatedValues: AccumulatedValuesArray,
+    results: IndicesArray = <IndicesArray>new Uint32Array(targetValues.length),
+    skip?: Uint8Array
+  ): IndicesArray {
+  const length_minus_1 = accumulatedValues.length - 1
+  const min = accumulatedValues[0];
+  const max = accumulatedValues[length_minus_1];
+  
+  let left: number
+  let right: number
+  let mid: number
+  let lMid: number
+  let foundTarget: boolean
+  let targetValue: number
+
+  if (skip) {
+    for (let i = 0; i < targetValues.length; i++) {
+      if(skip[i] !== 0) continue
+
+      targetValue = targetValues[i]
+    
+      if (targetValue >= max) {
+        results[i] = length_minus_1
+        continue
+      }
+      else if (targetValue <= min) {
+        results[i] = 0
+        continue
+      }
+
+      left = 0
+      right = length_minus_1
+      foundTarget = false
+
+      while (left <= right) {
+        mid = Math.floor((left + right) / 2);
+        lMid = accumulatedValues[mid]
+
+        if (lMid < targetValue)
+          left = mid + 1
+        else if (lMid > targetValue)
+          right = mid - 1
+        else {
+          results[i] = mid
+          foundTarget = true
+          break
+        }
+      }
+    
+      if (!foundTarget)
+        results[i] = Math.max(0, right);
+    }
+  }
+  else {
+    for (let i = 0; i < targetValues.length; i++) {
+      targetValue = targetValues[i]
+    
+      if (targetValue >= max) {
+        results[i] = length_minus_1
+        continue
+      }
+      else if (targetValue <= min) {
+        results[i] = 0
+        continue
+      }
+
+      left = 0
+      right = length_minus_1
+      foundTarget = false
+
+      while (left <= right) {
+        mid = Math.floor((left + right) / 2);
+        lMid = accumulatedValues[mid]
+
+        if (lMid < targetValue)
+          left = mid + 1
+        else if (lMid > targetValue)
+          right = mid - 1
+        else {
+          results[i] = mid
+          foundTarget = true
+          break
+        }
+      }
+    
+      if (!foundTarget)
+        results[i] = Math.max(0, right);
+    }
+  }
+
+  return results
+}
+
+export function binarySearch_vectorized_specific<
+    TargetValuesArray extends NumberArrayLike,
+    AccumulatedValuesIndexArray extends IntegerNumberArrayLike,
+    AccumulatedValuesArray extends NumberArrayLike = TargetValuesArray,
+    IndicesArray extends IntegerNumberArrayLike = Uint32Array
+  >(
+    targetValues: TargetValuesArray,
+    accumulatedValues_idx: AccumulatedValuesIndexArray,
+    accumulatedValues_arrays: AccumulatedValuesArray[],
+    results: IndicesArray = <IndicesArray>new Uint32Array(targetValues.length),
+    skip?: Uint8Array
+  ): IndicesArray {
+  let left: number
+  let right: number
+  let mid: number
+  let lMid: number
+  let foundTarget: boolean
+  let targetValue: number
+  let accumulatedValues: AccumulatedValuesArray
+
+  let length_minus_1: number;
+  let min: number;
+  let max: number;
+
+  if (skip) {
+    for (let i = 0; i < targetValues.length; i++) {
+      if (skip[i] !== 0) continue;
+
+      accumulatedValues = accumulatedValues_arrays[accumulatedValues_idx[i]]
+      targetValue = targetValues[i]
+    
+      length_minus_1 = accumulatedValues.length - 1
+      min = accumulatedValues[0];
+      max = accumulatedValues[length_minus_1];
+  
+      if (targetValue >= max) {
+        results[i] = length_minus_1
+        continue
+      }
+      else if (targetValue <= min) {
+        results[i] = 0
+        continue
+      }
+
+      left = 0
+      right = length_minus_1
+      foundTarget = false
+
+      while (left <= right) {
+        mid = Math.floor((left + right) / 2);
+        lMid = accumulatedValues[mid]
+
+        if (lMid < targetValue)
+          left = mid + 1
+        else if (lMid > targetValue)
+          right = mid - 1
+        else {
+          results[i] = mid
+          foundTarget = true
+          break
+        }
+      }
+    
+      if (!foundTarget)
+        results[i] = Math.max(0, right);
+    }
+  }
+  else {
+    for (let i = 0; i < targetValues.length; i++) {
+      accumulatedValues = accumulatedValues_arrays[accumulatedValues_idx[i]]
+      targetValue = targetValues[i]
+    
+      const length_minus_1 = accumulatedValues.length - 1
+      const min = accumulatedValues[0];
+      const max = accumulatedValues[length_minus_1];
+  
+      if (targetValue >= max) {
+        results[i] = length_minus_1
+        continue
+      }
+      else if (targetValue <= min) {
+        results[i] = 0
+        continue
+      }
+
+      left = 0
+      right = length_minus_1
+      foundTarget = false
+
+      while (left <= right) {
+        mid = Math.floor((left + right) / 2);
+        lMid = accumulatedValues[mid]
+
+        if (lMid < targetValue)
+          left = mid + 1
+        else if (lMid > targetValue)
+          right = mid - 1
+        else {
+          results[i] = mid
+          foundTarget = true
+          break
+        }
+      }
+    
+      if (!foundTarget)
+        results[i] = Math.max(0, right);
+    }
+  }
+
+  return results
 }

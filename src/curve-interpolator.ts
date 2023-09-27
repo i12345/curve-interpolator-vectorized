@@ -21,9 +21,10 @@ import {
   CurveMapper,
 } from './core/interfaces';
 import { SegmentedCurveMapper } from './curve-mappers/segmented-curve-mapper';
-import { derivativeAtT, findRootsOfT, secondDerivativeAtT, valueAtT } from './core/spline-segment';
+import { derivativeAtT, findRootsOfT, secondDerivativeAtT, valueAtT, valueAtT_vectorized } from './core/spline-segment';
 import { NumericalCurveMapper } from './curve-mappers/numerical-curve-mapper';
-import { clamp, copyValues } from './core/utils';
+import { clamp, clamp_vectorized, copyValues } from './core/utils';
+import { arrayLike, NumberArrayLike } from './core/array';
 
 export interface CurveInterpolatorOptions extends SplineCurveOptions {
   arcDivisions?: number,
@@ -35,9 +36,9 @@ export interface CurveInterpolatorOptions extends SplineCurveOptions {
 /**
  * Cubic curve interpolator
  */
-export default class CurveInterpolator {
+export default class CurveInterpolator<VectorArray extends NumberArrayLike = Float64Array> {
   _lmargin: number;
-  _curveMapper: CurveMapper;
+  _curveMapper: CurveMapper<VectorArray>;
   _cache = new Map<string, object>();
 
   /**
@@ -54,8 +55,8 @@ export default class CurveInterpolator {
     };
 
     const curveMapper = options.arcDivisions
-      ? new SegmentedCurveMapper(options.arcDivisions, () => this._invalidateCache())
-      : new NumericalCurveMapper(options.numericalApproximationOrder, options.numericalInverseSamples, () => this._invalidateCache());
+      ? new SegmentedCurveMapper<VectorArray>(options.arcDivisions, () => this._invalidateCache())
+      : new NumericalCurveMapper<VectorArray>(options.numericalApproximationOrder, options.numericalInverseSamples, () => this._invalidateCache());
     curveMapper.alpha = options.alpha;
     curveMapper.tension = options.tension;
     curveMapper.closed = options.closed;
@@ -72,6 +73,13 @@ export default class CurveInterpolator {
    */
   getTimeFromPosition(position:number, clampInput = false) : number {
     return this._curveMapper.getT(clampInput ? clamp(position, 0, 1) : position);
+  }
+
+  getTimeFromPosition_vectorized<
+      PositionArray extends NumberArrayLike,
+      TArray extends NumberArrayLike
+    >(position: PositionArray, clampInput = false, result: TArray = <TArray><unknown>arrayLike(position)): TArray {
+    return this._curveMapper.getT_vectorized(clampInput ? clamp_vectorized(position, 0, 1) : position, result)
   }
 
   /**
@@ -147,6 +155,41 @@ export default class CurveInterpolator {
     return this._curveMapper.evaluateForT(valueAtT, t, target);
   }
 
+  getPointAtTime_vectorized<TArray extends NumberArrayLike>(t: TArray, target: VectorArray = <VectorArray><unknown>arrayLike(t, this.dim)): VectorArray {
+    const n = t.length;
+    const skip = new Uint8Array(n);
+    t = clamp_vectorized(t, 0.0, 1.0);
+
+    const dim = this.dim;
+    let k: number
+    let target_offset: number
+    const point_0 = this.points[0];
+    const point_1 = this.points[this.points.length - 1];
+
+    for (let i = 0; i < n; i++) {
+      if (t[i] === 0) {
+        target_offset = i * dim;
+        for (k = 0; k < dim; k++)
+          target[target_offset++] = point_0[k];
+
+        skip[i] = 1;
+      }
+      else if (t[i] === 1) {
+        target_offset = i * dim;
+        if (this.closed)
+          for (k = 0; k < dim; k++)
+            target[target_offset++] = point_0[k];
+        else
+          for (k = 0; k < dim; k++)
+            target[target_offset++] = point_1[k];
+        
+        skip[i] = 1;
+      }
+    }
+
+    return this._curveMapper.evaluateForT_vectorized<TArray>(valueAtT_vectorized, t, target, skip)
+  }
+
   /**
    * Interpolate a point at the given position.
    * @param position position on curve (0..1)
@@ -156,6 +199,10 @@ export default class CurveInterpolator {
   getPointAt(position:number) : Vector
   getPointAt(position:number, target?:VectorType) : Vector {
     return this.getPointAtTime(this.getTimeFromPosition(position), target);
+  }
+
+  getPointAt_vectorized<PositionArray extends NumberArrayLike>(position: PositionArray, target?: VectorArray): VectorArray {
+    return this.getPointAtTime_vectorized(this.getTimeFromPosition_vectorized(position), target)
   }
 
   /**
@@ -477,6 +524,19 @@ export default class CurveInterpolator {
       pts.push(this.getPointAt(u, returnType && new returnType()));
     }
     return pts;
+  }
+
+  getPoints_vectorized(segments = 100, from = 0, to = 1): VectorArray {
+    if (!segments || segments <= 0) throw Error('Invalid arguments passed to getPoints(). You must specify at least 1 sample/segment.')
+    if (from < 0 || to > 1 || to < from) return undefined;
+
+    const n = segments + 1
+    const u = new Float64Array(n)
+    for (let d = 0; d <= segments; d++)
+      u[d] = from === 0 && to === 1 ?
+        d / segments : from + ((d / segments) * (to - from));
+
+    return this.getPointAt_vectorized(u)
   }
 
   /**

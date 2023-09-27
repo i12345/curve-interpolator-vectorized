@@ -1,13 +1,16 @@
 {
   "private": false,
-  "name": "curve-interpolator",
-  "version": "3.3.0",
-  "description": "Interpolate values on a Cardinal/Catmull-Rom spline curve",
-  "repository": "https://github.com/kjerandp/curve-interpolator",
+  "name": "curve-interpolator-vectorized",
+  "version": "3.3.1",
+  "description": "Interpolate arrays of values on a Cardinal/Catmull-Rom spline curve with vectorized methods",
+  "repository": "https://github.com/i12345/curve-interpolator-vectorized",
   "bugs": {
-    "url": "https://github.com/kjerandp/curve-interpolator/issues"
+    "url": "https://github.com/i12345/curve-interpolator-vectorized/issues"
   },
-  "author": "Kjerand Pedersen",
+  "contributors": [
+    "Kjerand Pedersen",
+    "Isaac Valdez"
+  ],
   "license": "MIT",
   "keywords": [
     "cubic",
