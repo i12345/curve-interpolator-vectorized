@@ -8,7 +8,7 @@ export type NumArray4 = [number, number, number, number];
 /**
  * Either a number array or an object implementing the VectorType interface
  */
-export type Vector = (number[] | VectorType);
+export type Vector = (NumberArrayLike | VectorType);
 
 export type SegmentFunction = (t: number, coefficients: NumArray4) => number;
 export type SegmentFunction_vectorized<TArray extends NumberArrayLike, VectorArray extends NumberArrayLike> = (t: TArray, coefficients_indices: IntegerNumberArrayLike, dimensionality: number, coefficients_vectorized: Float64Array, results?: VectorArray, skip?: Uint8Array) => VectorArray
