@@ -107,6 +107,25 @@ describe('curve-interpolator.ts', () => {
 
   });
 
+  it('should be able to lookup values on curve using _vectorized', () => {
+    const interp = new CurveInterpolator(points, { tension: 0, alpha: 0 });
+
+    const EPS_local = 0.025
+    const EPS = EPS_local
+
+    let actual = interp.getIntersects_vectorized(new Float64Array([2.2]), 1);
+    expect(actual.length).to.equal(2);
+    try {
+      expect(actual[0]).to.be.approximately(19.125, EPS);
+    } catch {
+      expect(actual[0]).to.be.approximately(10.682, EPS);
+    }
+
+    actual = interp.getIntersects_vectorized(new Float64Array([1.1]), 0);
+    expect(actual.length).to.equal(2);
+    expect(actual[1]).to.be.approximately(17.701, EPS);
+  });
+
   it('should be able to lookup extrema on curve', () => {
     const interp = new CurveInterpolator([[187.7, 113.4], [930, 821.62], [1620, 1330.82], [2310, 1621.24]], { tension: 0.75, alpha: 0 });
 

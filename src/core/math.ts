@@ -78,6 +78,24 @@ export function getCubicRoots(a: number, b: number, c: number, d: number) : numb
   return roots;
 }
 
+// export function getCubicRoots_vectorized<
+//     CoefficientArray extends NumberArrayLike,
+//     VariableArray extends NumberArrayLike
+//   >(
+//     a: CoefficientArray,
+//     b: CoefficientArray,
+//     c: CoefficientArray,
+//     d: CoefficientArray,
+//     results: [VariableArray, VariableArray, VariableArray] = [
+//       <VariableArray><unknown>arrayLike(a),
+//       <VariableArray><unknown>arrayLike(a),
+//       <VariableArray><unknown>arrayLike(a)
+//     ]
+//   ): [VariableArray, VariableArray, VariableArray] {
+//   //TODO: integrate cube root calculation directly into calling vectorized function
+//   return results;
+// }
+
 /**
  * Get the dot product of two vectors
  * @param v1 Vector

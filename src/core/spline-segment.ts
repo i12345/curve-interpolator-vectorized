@@ -251,6 +251,517 @@ export function findRootsOfT(lookup: number, coefficients: NumArray4): number[] 
   return roots.filter(t => t > -EPS && t <= 1 + EPS).map(t => clamp(t, 0, 1));
 }
 
+export function findRootsOfT_vectorized<
+    VectorArray extends NumberArrayLike,
+    RootsArray extends NumberArrayLike
+  >(
+    lookup: VectorArray,
+    root_index: 0 | 1 | 2 | -1,
+    coefficients_segment_indices: IntegerNumberArrayLike,
+    coefficients_vectorized: Float64Array,
+    results: RootsArray = <RootsArray><unknown>arrayLike(lookup),
+    skip?: Uint8Array
+  ): RootsArray {
+  const n = lookup.length;
+
+  let coefficients_offset: number
+
+  let a: number
+  let b: number
+  let c: number
+  let d: number
+
+  let abs_a: number
+  let mul_2_a: number
+  let sqrt_D: number
+  let sqr_B: number
+  let mul_27_a_a: number
+  let b_div_3_mul_a: number
+
+  let roots_n: 0 | 1 | 2 | 3
+  let root_0: number
+  let root_1: number
+  let root_2: number
+
+  const EPS_negative = -EPS;
+  const EPS_positive = 1 + EPS;
+
+  if (skip) {
+    for (let i = 0; i < n; i++) {
+      if (skip[i] !== 0) continue;
+
+      coefficients_offset = 4 * coefficients_segment_indices[i]
+      a = coefficients_vectorized[coefficients_offset++];
+      b = coefficients_vectorized[coefficients_offset++];
+      c = coefficients_vectorized[coefficients_offset++];
+      d = coefficients_vectorized[coefficients_offset++];
+
+      // x = d - lookup[i];
+      // d = x
+      d -= lookup[i];
+
+      if (a === 0 && b === 0 && c === 0 && d === 0) {
+        //   return [0]; // whole segment matches - how to deal with this?
+        results[i] = 0;
+      }
+      else {
+        // getCubicRoots(a, b, c, x = d)
+        // getCubicRoots(a: number, b: number, c: number, d: number)
+
+        abs_a = Math.abs(a);
+
+        if (abs_a < EPS) { // Quadratic case, ax^2+bx+c=0
+          // getQuadRoots(b, c, d);
+
+          if (abs_a < EPS) { // Linear case, ax+b=0
+            if (Math.abs(b) < EPS) roots_n = 0; // Degenerate case
+            else {
+              roots_n = 1;
+              root_0 = -c / b;
+            }
+          }
+          else {
+            const D = b * b - 4 * a * c;
+            if (Math.abs(D) < EPS) {
+              roots_n = 1;
+              root_0 = -b / (2 * a);
+            }
+    
+            if (D > 0) {
+              roots_n = 2;
+              sqrt_D = Math.sqrt(D);
+              mul_2_a = 2 * a;
+              root_0 = (-b + sqrt_D) / mul_2_a;
+              root_1 = (-b - sqrt_D) / mul_2_a;
+            }
+            else roots_n = 0;
+          }
+        }
+        else {
+          // Convert to depressed cubic t^3+pt+q = 0 (subst x = t - b/3a)
+          // const p = (3 * a * c - b * b) / (3 * a * a);
+          // const q = (2 * b * b * b - 9 * a * b * c + 27 * a * a * d) / (27 * a * a * a);
+          const p = (c - b * b) / a;
+          sqr_B = b * b;
+          mul_27_a_a = 27 * a * a;
+          const q = (2 * sqr_B * b - 9 * a * b * c + mul_27_a_a * d) / (mul_27_a_a * a);
+
+          if (Math.abs(p) < EPS) { // p = 0 -> t^3 = -q -> t = -q^1/3
+            roots_n = 1;
+            root_0 = Math.cbrt(-q);
+          } else if (Math.abs(q) < EPS) { // q = 0 -> t^3 + pt = 0 -> t(t^2+p)=0
+            root_0 = 0;
+            if (p < 0) {
+              roots_n = 3;
+              root_1 = Math.sqrt(-p);
+              // root_2 = -Math.sqrt(-p);
+              root_2 = -root_1;
+            }
+            else {
+              roots_n = 1;
+            }
+          } else {
+            const D = q * q / 4 + p * p * p / 27;
+            if (Math.abs(D) < EPS) {       // D = 0 -> two roots
+              roots_n = 2;
+              // root_2 is tmp variable
+              root_2 = 1.5 * q / p;
+              // root_0 = -1.5 * q / p;
+              // root_1 = 3 * q / p;
+              root_0 = -root_2;
+              root_1 = 2 * root_2;
+            } else if (D > 0) {             // Only one real root
+              const u = Math.cbrt(-q / 2 - Math.sqrt(D));
+              roots_n = 1;
+              root_0 = u - p / (3 * u);
+            } else { // D < 0, three roots, but needs to use complex numbers/trigonometric solution
+              const u = 2 * Math.sqrt(-p / 3);
+              const t = Math.acos(3 * q / p / u) / 3;  // D < 0 implies p < 0 and acos argument in [-1..1]
+              const k = 2 * Math.PI / 3;
+              roots_n = 3;
+              root_0 = u * Math.cos(t);
+              root_1 = u * Math.cos(t - k);
+              root_2 = u * Math.cos(t - 2 * k);
+            }
+          }
+        }
+
+        // Convert back from depressed cubic
+        switch (roots_n) {
+          case 0:
+            break;
+          case 1:
+            root_0 -= b / (3 * a);
+            break;
+          case 2:
+            b_div_3_mul_a = b / (3 * a);
+            root_0 -= b_div_3_mul_a;
+            root_1 -= b_div_3_mul_a;
+            break;
+          case 3:
+            b_div_3_mul_a = b / (3 * a);
+            root_0 -= b_div_3_mul_a;
+            root_1 -= b_div_3_mul_a;
+            root_2 -= b_div_3_mul_a;
+            break;
+        }
+
+        // return roots.filter(t => t > -EPS && t <= 1 + EPS).map(t => clamp(t, 0, 1));
+        switch (root_index) {
+          case 0:
+            switch (roots_n) {
+              case 0:
+                results[i] = NaN;
+                break;
+              case 1:
+                if (root_0 > EPS_negative && root_0 <= EPS_positive)
+                  results[i] = root_0;
+                else
+                  results[i] = NaN;
+                break;
+              case 2:
+                if (root_0 > EPS_negative && root_0 <= EPS_positive)
+                  results[i] = root_0;
+                else if (root_1 > EPS_negative && root_1 <= EPS_positive)
+                  results[i] = root_1;
+                else
+                  results[i] = NaN;
+                break;
+              case 3:
+                if (root_0 > EPS_negative && root_0 <= EPS_positive)
+                  results[i] = root_0;
+                else if (root_1 > EPS_negative && root_1 <= EPS_positive)
+                  results[i] = root_1;
+                else if (root_2 > EPS_negative && root_2 <= EPS_positive)
+                  results[i] = root_2;
+                else
+                  results[i] = NaN;
+                break;
+            }
+            break;
+      
+          case 1:
+            switch (roots_n) {
+              case 0:
+                results[i] = NaN;
+                break;
+              case 1:
+                results[i] = NaN;
+                break;
+              case 2:
+                if (root_0 > EPS_negative && root_0 <= EPS_positive) {
+                  if (root_1 > EPS_negative && root_1 <= EPS_positive)
+                    results[i] = root_1;
+                  else
+                    results[i] = NaN;
+                }
+                else
+                  results[i] = NaN;
+                break;
+              case 3:
+                if (root_0 > EPS_negative && root_0 <= EPS_positive) {
+                  if (root_1 > EPS_negative && root_1 <= EPS_positive)
+                    results[i] = root_1;
+                  else if (root_2 > EPS_negative && root_2 <= EPS_positive)
+                    results[i] = root_2;
+                  else
+                    results[i] = NaN;
+                }
+                else if (root_1 > EPS_negative && root_1 <= EPS_positive) {
+                  if (root_2 > EPS_negative && root_2 <= EPS_positive)
+                    results[i] = root_2;
+                  else
+                    results[i] = NaN;
+                }
+                else
+                  results[i] = NaN;
+                break;
+            }
+            break;
+      
+          case 2:
+            if (root_0 > EPS_negative && root_0 <= EPS_positive &&
+              root_1 > EPS_negative && root_1 <= EPS_positive &&
+              root_2 > EPS_negative && root_2 <= EPS_positive)
+              results[i] = root_2;
+            else
+              results[i] = NaN;
+            break;
+      
+          case -1:
+            switch (roots_n) {
+              case 0:
+                results[i] = NaN;
+                break;
+              case 1:
+                if (root_0 > EPS_negative && root_0 <= EPS_positive)
+                  results[i] = root_0;
+                else
+                  results[i] = NaN;
+                break;
+              case 2:
+                if (root_1 > EPS_negative && root_1 <= EPS_positive)
+                  results[i] = root_1;
+                else if (root_0 > EPS_negative && root_0 <= EPS_positive)
+                  results[i] = root_0;
+                else
+                  results[i] = NaN;
+                break;
+              case 3:
+                if (root_2 > EPS_negative && root_2 <= EPS_positive)
+                  results[i] = root_2;
+                else if (root_1 > EPS_negative && root_1 <= EPS_positive)
+                  results[i] = root_1;
+                else if (root_0 > EPS_negative && root_0 <= EPS_positive)
+                  results[i] = root_0;
+                else
+                  results[i] = NaN;
+                break;
+            }
+            break;
+        }
+      }
+    }
+  }
+  else {
+    for (let i = 0; i < n; i++) {
+      coefficients_offset = 4 * coefficients_segment_indices[i]
+      a = coefficients_vectorized[coefficients_offset++];
+      b = coefficients_vectorized[coefficients_offset++];
+      c = coefficients_vectorized[coefficients_offset++];
+      d = coefficients_vectorized[coefficients_offset++];
+  
+      // x = d - lookup[i];
+      // d = x
+      d -= lookup[i];
+  
+      if (a === 0 && b === 0 && c === 0 && d === 0) {
+        //   return [0]; // whole segment matches - how to deal with this?
+        results[i] = 0;
+      }
+      else {
+        // getCubicRoots(a, b, c, x = d)
+        // getCubicRoots(a: number, b: number, c: number, d: number)
+  
+        abs_a = Math.abs(a);
+  
+        if (abs_a < EPS) { // Quadratic case, ax^2+bx+c=0
+          // getQuadRoots(b, c, d);
+  
+          if (abs_a < EPS) { // Linear case, ax+b=0
+            if (Math.abs(b) < EPS) roots_n = 0; // Degenerate case
+            else {
+              roots_n = 1;
+              root_0 = -c / b;
+            }
+          }
+          else {
+            const D = b * b - 4 * a * c;
+            if (Math.abs(D) < EPS) {
+              roots_n = 1;
+              root_0 = -b / (2 * a);
+            }
+      
+            if (D > 0) {
+              roots_n = 2;
+              sqrt_D = Math.sqrt(D);
+              mul_2_a = 2 * a;
+              root_0 = (-b + sqrt_D) / mul_2_a;
+              root_1 = (-b - sqrt_D) / mul_2_a;
+            }
+            else roots_n = 0;
+          }
+        }
+        else {
+          // Convert to depressed cubic t^3+pt+q = 0 (subst x = t - b/3a)
+          // const p = (3 * a * c - b * b) / (3 * a * a);
+          // const q = (2 * b * b * b - 9 * a * b * c + 27 * a * a * d) / (27 * a * a * a);
+          const p = (c - b * b) / a;
+          sqr_B = b * b;
+          mul_27_a_a = 27 * a * a;
+          const q = (2 * sqr_B * b - 9 * a * b * c + mul_27_a_a * d) / (mul_27_a_a * a);
+  
+          if (Math.abs(p) < EPS) { // p = 0 -> t^3 = -q -> t = -q^1/3
+            roots_n = 1;
+            root_0 = Math.cbrt(-q);
+          } else if (Math.abs(q) < EPS) { // q = 0 -> t^3 + pt = 0 -> t(t^2+p)=0
+            root_0 = 0;
+            if (p < 0) {
+              roots_n = 3;
+              root_1 = Math.sqrt(-p);
+              // root_2 = -Math.sqrt(-p);
+              root_2 = -root_1;
+            }
+            else {
+              roots_n = 1;
+            }
+          } else {
+            const D = q * q / 4 + p * p * p / 27;
+            if (Math.abs(D) < EPS) {       // D = 0 -> two roots
+              roots_n = 2;
+              // root_2 is tmp variable
+              root_2 = 1.5 * q / p;
+              // root_0 = -1.5 * q / p;
+              // root_1 = 3 * q / p;
+              root_0 = -root_2;
+              root_1 = 2 * root_2;
+            } else if (D > 0) {             // Only one real root
+              const u = Math.cbrt(-q / 2 - Math.sqrt(D));
+              roots_n = 1;
+              root_0 = u - p / (3 * u);
+            } else { // D < 0, three roots, but needs to use complex numbers/trigonometric solution
+              const u = 2 * Math.sqrt(-p / 3);
+              const t = Math.acos(3 * q / p / u) / 3;  // D < 0 implies p < 0 and acos argument in [-1..1]
+              const k = 2 * Math.PI / 3;
+              roots_n = 3;
+              root_0 = u * Math.cos(t);
+              root_1 = u * Math.cos(t - k);
+              root_2 = u * Math.cos(t - 2 * k);
+            }
+          }
+        }
+  
+        // Convert back from depressed cubic
+        switch (roots_n) {
+          case 0:
+            break;
+          case 1:
+            root_0 -= b / (3 * a);
+            break;
+          case 2:
+            b_div_3_mul_a = b / (3 * a);
+            root_0 -= b_div_3_mul_a;
+            root_1 -= b_div_3_mul_a;
+            break;
+          case 3:
+            b_div_3_mul_a = b / (3 * a);
+            root_0 -= b_div_3_mul_a;
+            root_1 -= b_div_3_mul_a;
+            root_2 -= b_div_3_mul_a;
+            break;
+        }
+  
+        // return roots.filter(t => t > -EPS && t <= 1 + EPS).map(t => clamp(t, 0, 1));
+        switch (root_index) {
+          case 0:
+            switch (roots_n) {
+              case 0:
+                results[i] = NaN;
+                break;
+              case 1:
+                if (root_0 > EPS_negative && root_0 <= EPS_positive)
+                  results[i] = root_0;
+                else
+                  results[i] = NaN;
+                break;
+              case 2:
+                if (root_0 > EPS_negative && root_0 <= EPS_positive)
+                  results[i] = root_0;
+                else if (root_1 > EPS_negative && root_1 <= EPS_positive)
+                  results[i] = root_1;
+                else
+                  results[i] = NaN;
+                break;
+              case 3:
+                if (root_0 > EPS_negative && root_0 <= EPS_positive)
+                  results[i] = root_0;
+                else if (root_1 > EPS_negative && root_1 <= EPS_positive)
+                  results[i] = root_1;
+                else if (root_2 > EPS_negative && root_2 <= EPS_positive)
+                  results[i] = root_2;
+                else
+                  results[i] = NaN;
+                break;
+            }
+            break;
+        
+          case 1:
+            switch (roots_n) {
+              case 0:
+                results[i] = NaN;
+                break;
+              case 1:
+                results[i] = NaN;
+                break;
+              case 2:
+                if (root_0 > EPS_negative && root_0 <= EPS_positive) {
+                  if (root_1 > EPS_negative && root_1 <= EPS_positive)
+                    results[i] = root_1;
+                  else
+                    results[i] = NaN;
+                }
+                else
+                  results[i] = NaN;
+                break;
+              case 3:
+                if (root_0 > EPS_negative && root_0 <= EPS_positive) {
+                  if (root_1 > EPS_negative && root_1 <= EPS_positive)
+                    results[i] = root_1;
+                  else if (root_2 > EPS_negative && root_2 <= EPS_positive)
+                    results[i] = root_2;
+                  else
+                    results[i] = NaN;
+                }
+                else if (root_1 > EPS_negative && root_1 <= EPS_positive) {
+                  if (root_2 > EPS_negative && root_2 <= EPS_positive)
+                    results[i] = root_2;
+                  else
+                    results[i] = NaN;
+                }
+                else
+                  results[i] = NaN;
+                break;
+            }
+            break;
+        
+          case 2:
+            if (root_0 > EPS_negative && root_0 <= EPS_positive &&
+              root_1 > EPS_negative && root_1 <= EPS_positive &&
+              root_2 > EPS_negative && root_2 <= EPS_positive)
+              results[i] = root_2;
+            else
+              results[i] = NaN;
+            break;
+        
+          case -1:
+            switch (roots_n) {
+              case 0:
+                results[i] = NaN;
+                break;
+              case 1:
+                if (root_0 > EPS_negative && root_0 <= EPS_positive)
+                  results[i] = root_0;
+                else
+                  results[i] = NaN;
+                break;
+              case 2:
+                if (root_1 > EPS_negative && root_1 <= EPS_positive)
+                  results[i] = root_1;
+                else if (root_0 > EPS_negative && root_0 <= EPS_positive)
+                  results[i] = root_0;
+                else
+                  results[i] = NaN;
+                break;
+              case 3:
+                if (root_2 > EPS_negative && root_2 <= EPS_positive)
+                  results[i] = root_2;
+                else if (root_1 > EPS_negative && root_1 <= EPS_positive)
+                  results[i] = root_1;
+                else if (root_0 > EPS_negative && root_0 <= EPS_positive)
+                  results[i] = root_0;
+                else
+                  results[i] = NaN;
+                break;
+            }
+            break;
+        }
+      }
+    }
+  }
+  
+  return results;
+}
+
 /**
  * Convenience function for evaluating segment functions for all components of a vector
  * @param func SegmentFunction to evaluate

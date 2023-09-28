@@ -21,7 +21,7 @@ import {
   CurveMapper,
 } from './core/interfaces';
 import { SegmentedCurveMapper } from './curve-mappers/segmented-curve-mapper';
-import { derivativeAtT, findRootsOfT, secondDerivativeAtT, valueAtT, valueAtT_vectorized } from './core/spline-segment';
+import { derivativeAtT, findRootsOfT, findRootsOfT_vectorized, secondDerivativeAtT, valueAtT, valueAtT_vectorized } from './core/spline-segment';
 import { NumericalCurveMapper } from './curve-mappers/numerical-curve-mapper';
 import { clamp, clamp_vectorized, copyValues } from './core/utils';
 import { arrayLike, NumberArrayLike } from './core/array';
@@ -90,6 +90,10 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
    */
   getPositionFromTime(t:number, clampInput = false) : number {
     return this._curveMapper.getU(clampInput ? clamp(t, 0, 1) : t);
+  }
+
+  getPositionFromTime_vectorized<TArray extends NumberArrayLike, UArray extends NumberArrayLike>(t: TArray, clampInput = false, u: UArray = <UArray><unknown>arrayLike(t)): UArray {
+    return this._curveMapper.getU_vectorized(clampInput ? clamp_vectorized(t, 0, 1) : t, u);
   }
 
   /**
@@ -612,6 +616,10 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
     return Math.abs(max) === 1 ? (solutions.length === 1 ? solutions[0] : null) : solutions;
   }
 
+  getIntersects_vectorized<LookupArray extends NumberArrayLike = VectorArray>(v: LookupArray, axis = 0, soln_index: 0 = 0, margin: number = this._lmargin, result: VectorArray = <VectorArray><unknown>arrayLike(v, this.dim)): VectorArray {
+    return this.getPointAtTime_vectorized(this.getIntersectsAsTime_vectorized(v, axis, soln_index, margin), result);
+  }
+
   /**
    * Find positions (0-1) on the curve intersected by the given value along a given axis
    * @param v lookup value
@@ -620,6 +628,19 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
    */
   getIntersectsAsPositions(v:number, axis = 0, max = 0, margin:number = this._lmargin) : number[] {
     return this.getIntersectsAsTime(v, axis, max, margin).map(t => this.getPositionFromTime(t));
+  }
+
+  getIntersectsAsPositions_vectorized<
+    LookupArray extends NumberArrayLike,
+    UArray extends NumberArrayLike
+    >(
+      v: LookupArray,
+      axis = 0,
+      soln_index: 0 = 0,
+      margin: number = this._lmargin,
+      results: UArray = <UArray><unknown>arrayLike(v)
+    ): UArray {
+    return this.getPositionFromTime_vectorized(this.getIntersectsAsTime_vectorized(v, axis, soln_index, margin, results), false, results)
   }
 
   /**
@@ -663,6 +684,80 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
       }
     }
     return Array.from(solutions);
+  }
+
+  getIntersectsAsTime_vectorized<
+      LookupArray extends NumberArrayLike,
+      TArray extends NumberArrayLike
+    >(
+      v: LookupArray,
+      axis = 0,
+      soln_index: 0 = 0,
+      margin: number = this._lmargin,
+      results: TArray = <TArray><unknown>arrayLike(v)
+    ): TArray {
+    const n = v.length;
+
+    const k = axis;
+    const nPoints = this.closed ? this.points.length : this.points.length - 1;
+    
+    const vmin = new Float64Array(nPoints);
+    const vmax = new Float64Array(nPoints);
+
+    let vmin_i: number, vmax_i: number;
+    let segment_i: number
+
+    for (segment_i = 0; segment_i < nPoints; segment_i++) {
+      const idx = (soln_index < 0 ? nPoints - (segment_i + 1) : segment_i);
+
+      const [, p1, p2] = getControlPoints(idx, this.points, this.closed);
+
+      if (p1[k] < p2[k]) {
+        vmin_i = p1[k];
+        vmax_i = p2[k];
+      } else {
+        vmin_i = p2[k];
+        vmax_i = p1[k];
+      }
+
+      vmin_i -= margin;
+      vmax_i += margin;
+
+      vmin[segment_i] = vmin_i
+      vmax[segment_i] = vmax_i
+    }
+
+    const skip = new Uint8Array(n);
+    const idx = new Uint32Array(n);
+    const coefficient_indices = new Uint32Array(n);
+    let v_j: number
+
+    for (let j = 0; j < n; j++) {
+      v_j = v[j];
+      for (segment_i = 0; segment_i < nPoints; segment_i++) {
+        // if (v_j - margin <= vmax && v_j + margin >= vmin)
+        if (v_j <= vmax[segment_i] && v_j >= vmin[segment_i]) {
+          idx[j] = (soln_index < 0 ? nPoints - (segment_i + 1) : segment_i);
+          coefficient_indices[j] = (segment_i * this.dim) + axis;
+          break
+        }
+      }
+
+      if (segment_i === nPoints) {
+        results[j] = NaN;
+        skip[j] = 1;
+      }
+    }
+
+    results = findRootsOfT_vectorized(v, soln_index, coefficient_indices, this._curveMapper.getCoefficients_vectorized(), results, skip);
+    
+    for (let j = 0; j < n; j++) {
+      if (skip[j] !== 0) continue;
+      // const nt = (ts[j] + idx) / nPoints; // normalize t
+      results[j] = (results[j] + idx[j]) / nPoints;
+    }
+
+    return results;
   }
 
   /**

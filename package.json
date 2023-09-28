@@ -1,7 +1,7 @@
 {
   "private": false,
   "name": "curve-interpolator-vectorized",
-  "version": "3.3.2",
+  "version": "3.3.3",
   "description": "Interpolate arrays of values on a Cardinal/Catmull-Rom spline curve with vectorized methods",
   "repository": "https://github.com/i12345/curve-interpolator-vectorized",
   "bugs": {
@@ -27,6 +27,7 @@
     "build": "rollup -c",
     "prepub": "npm run build",
     "pub": "npm publish --access=public",
+    "pretest": "npm run build",
     "test": "mocha",
     "test:watch": "mocha --reporter min --watch --watch-extensions ts",
     "predocs": "rimraf docs",
