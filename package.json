@@ -1,7 +1,7 @@
 {
   "private": false,
   "name": "curve-interpolator-vectorized",
-  "version": "3.3.3",
+  "version": "3.3.4",
   "description": "Interpolate arrays of values on a Cardinal/Catmull-Rom spline curve with vectorized methods",
   "repository": "https://github.com/i12345/curve-interpolator-vectorized",
   "bugs": {
