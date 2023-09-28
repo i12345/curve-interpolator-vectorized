@@ -21,10 +21,10 @@ import {
   CurveMapper,
 } from './core/interfaces';
 import { SegmentedCurveMapper } from './curve-mappers/segmented-curve-mapper';
-import { axisValueAtT_vectorized, axisValueAtT_vectorized_custom, derivativeAtT, findRootsOfT, findRootsOfT_vectorized, secondDerivativeAtT, valueAtT, valueAtT_vectorized } from './core/spline-segment';
+import { axisValueAtT_vectorized, axisValueAtT_vectorized_custom, derivativeAtT, findRootsOfT, findRootsOfT_vectorized, secondDerivativeAtT, valueAtT, valueAtT_vectorized, valueAtT_vectorized_custom } from './core/spline-segment';
 import { NumericalCurveMapper } from './curve-mappers/numerical-curve-mapper';
 import { clamp, clamp_vectorized, copyValues } from './core/utils';
-import { arrayLike, NumberArrayLike } from './core/array';
+import { arrayLike, IntegerNumberArrayLike, NumberArrayLike } from './core/array';
 
 export interface CurveInterpolatorOptions extends SplineCurveOptions {
   arcDivisions?: number,
@@ -213,6 +213,44 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
     return this._curveMapper.evaluateForT_vectorized<TArray>(valueAtT_vectorized, t, target, skip)
   }
 
+  getPointAtTime_vectorized_custom<TArray extends NumberArrayLike>(t: TArray, dimensions: IntegerNumberArrayLike = new Uint32Array(this.dim).map((_, i) => i), target: VectorArray = <VectorArray><unknown>arrayLike(t, dimensions.length), clampInput = true): VectorArray {
+    const n = t.length;
+    const skip = new Uint8Array(n);
+
+    if (clampInput)
+      t = clamp_vectorized(t, 0.0, 1.0);
+
+    const dim = dimensions.length;
+    
+    let k: number
+    let target_offset: number
+    const point_0 = this.points[0];
+    const point_1 = this.points[this.points.length - 1];
+
+    for (let i = 0; i < n; i++) {
+      if (t[i] === 0) {
+        target_offset = i * dim;
+        for (k = 0; k < dim; k++)
+          target[target_offset++] = point_0[dimensions[k]];
+
+        skip[i] = 1;
+      }
+      else if (t[i] === 1) {
+        target_offset = i * dim;
+        if (this.closed)
+          for (k = 0; k < dim; k++)
+            target[target_offset++] = point_0[dimensions[k]];
+        else
+          for (k = 0; k < dim; k++)
+            target[target_offset++] = point_1[dimensions[k]];
+        
+        skip[i] = 1;
+      }
+    }
+
+    return this._curveMapper.evaluateForT_vectorized<TArray>(valueAtT_vectorized_custom(dimensions), t, target, skip)
+  }
+
   getAxisValuesAtTime_vectorized<TArray extends NumberArrayLike>(t: TArray, axis: number, target: VectorArray = <VectorArray><unknown>arrayLike(t), clampInput = true): VectorArray {
     const n = t.length;
     const skip = new Uint8Array(n);
@@ -284,8 +322,16 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
     return this.getPointAtTime_vectorized(this.getTimeFromPosition_vectorized(position, clampInput), target, clampInput);
   }
 
+  getPointAt_vectorized_custom<PositionArray extends NumberArrayLike>(position: PositionArray, dimensions: IntegerNumberArrayLike = new Uint32Array(this.dim).map((_, i) => i), target?: VectorArray, clampInput = true): VectorArray {
+    return this.getPointAtTime_vectorized_custom(this.getTimeFromPosition_vectorized(position, clampInput), dimensions, target, clampInput);
+  }
+
   getAxisValues_vectorized<PositionArray extends NumberArrayLike>(position: PositionArray, axis: number, target?: VectorArray, clampInput = true): VectorArray {
     return this.getAxisValuesAtTime_vectorized(this.getTimeFromPosition_vectorized(position, clampInput), axis, target, clampInput);
+  }
+
+  getAxisValues_vectorized_custom<PositionArray extends NumberArrayLike>(position: PositionArray, axis: number, target?: VectorArray, clampInput = true, offset = 0, stride = 1): VectorArray {
+    return this.getAxisValuesAtTime_vectorized_custom(this.getTimeFromPosition_vectorized(position, clampInput), axis, target, clampInput, offset, stride);
   }
 
   /**

@@ -50,6 +50,36 @@ describe('curve-interpolator.ts', () => {
     expect(result.y).to.approximately(2.0071484, EPS);
   });
 
+  it('should be able to get points on curve using _vectorized method', () => {
+    const interp = new CurveInterpolator(points, { tension: 0, alpha: 0 });
+
+    const result = interp.getPointAt_vectorized(new Float64Array([0.7]));
+    expect(result[0]).to.approximately(11.024, EPS);
+    expect(result[1]).to.approximately(2.0071484, EPS);
+  });
+
+  it('should be able to get points on curve using _vectorized_custom method', () => {
+    const interp = new CurveInterpolator(points, { tension: 0, alpha: 0 });
+
+    const result0 = interp.getPointAt_vectorized_custom(new Float64Array([0.7]), [0]);
+    expect(result0.length).to.equal(1);
+    expect(result0[0]).to.approximately(11.024, EPS);
+
+    const result1 = interp.getPointAt_vectorized_custom(new Float64Array([0.7]), [1]);
+    expect(result1.length).to.equal(1);
+    expect(result1[0]).to.approximately(2.0071484, EPS);
+
+    const result01 = interp.getPointAt_vectorized_custom(new Float64Array([0.7]), [0, 1]);
+    expect(result01.length).to.equal(2);
+    expect(result01[0]).to.approximately(11.024, EPS);
+    expect(result01[1]).to.approximately(2.0071484, EPS);
+
+    const result10 = interp.getPointAt_vectorized_custom(new Float64Array([0.7]), [1, 0]);
+    expect(result10.length).to.equal(2);
+    expect(result10[0]).to.approximately(2.0071484, EPS);
+    expect(result10[1]).to.approximately(11.024, EPS);
+  });
+
   it('should be able to pass points as VectorType', () => {
     const input = points3d.map(d => new Point(d[0], d[1], d[2]));
     const interp = new CurveInterpolator(input, { tension: 0, alpha: 1, arcDivisions: 0 });

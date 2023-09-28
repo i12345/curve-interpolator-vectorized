@@ -149,6 +149,79 @@ export function valueAtT_vectorized<
   return results;
 }
 
+export const valueAtT_vectorized_custom = <
+    TArray extends NumberArrayLike,
+    VectorArray extends NumberArrayLike,
+  >(result_dimensions: IntegerNumberArrayLike) => (
+      t: TArray,
+      coefficient_indices: IntegerNumberArrayLike,
+      dimensionality: number,
+      vectorized_coefficients: Float64Array,
+      results: VectorArray = <VectorArray><unknown>arrayLike(t, dimensionality),
+      skip?: Uint8Array
+  ): VectorArray => {
+  const n = t.length
+  
+  let t_i: number
+  let t2: number
+  let t3: number
+
+  let coefficients_offset_base: number
+  let coefficients_offset: number
+  let a: number
+  let b: number
+  let c: number
+  let d: number
+  let dimension_i: number
+  let dimension: number
+  let results_offset = 0
+  const dimensionality_times_4 = 4 * dimensionality
+  
+  const result_dimensionality = result_dimensions.length;
+  
+  if (skip) {
+    for (let i = 0; i < n; i++) {
+      if (skip[i] !== 0) {
+        results_offset += result_dimensionality
+        continue;
+      }
+
+      t_i = t[i];
+      t2 = t_i * t_i;
+      t3 = t_i * t2;
+      coefficients_offset_base = dimensionality_times_4 * coefficient_indices[i];
+      for (dimension_i = 0; dimension_i < result_dimensionality; dimension_i++) {
+        dimension = result_dimensions[dimension_i];
+        coefficients_offset = coefficients_offset_base + (4 * dimension);
+        a = vectorized_coefficients[coefficients_offset++];
+        b = vectorized_coefficients[coefficients_offset++];
+        c = vectorized_coefficients[coefficients_offset++];
+        d = vectorized_coefficients[coefficients_offset];
+        results[results_offset++] = a * t3 + b * t2 + c * t_i + d;
+      }
+    }
+  }
+  else {
+    for (let i = 0; i < n; i++) {
+      t_i = t[i];
+      t2 = t_i * t_i;
+      t3 = t_i * t2;
+      coefficients_offset_base = dimensionality_times_4 * coefficient_indices[i];
+      for (dimension_i = 0; dimension_i < result_dimensionality; dimension_i++) {
+        dimension = result_dimensions[dimension_i];
+        coefficients_offset = coefficients_offset_base + (4 * dimension);
+        a = vectorized_coefficients[coefficients_offset++];
+        b = vectorized_coefficients[coefficients_offset++];
+        c = vectorized_coefficients[coefficients_offset++];
+        d = vectorized_coefficients[coefficients_offset];
+        results[results_offset++] = a * t3 + b * t2 + c * t_i + d;
+      }
+    }
+  }
+
+  return results;
+}
+
 export const axisValueAtT_vectorized = <
       TArray extends NumberArrayLike,
       VectorArray extends NumberArrayLike,
