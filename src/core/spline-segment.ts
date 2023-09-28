@@ -149,6 +149,63 @@ export function valueAtT_vectorized<
   return results;
 }
 
+export const axisValueAtT_vectorized = <
+  TArray extends NumberArrayLike,
+  VectorArray extends NumberArrayLike,
+>(axis: number) => (
+  t: TArray,
+  coefficient_indices: IntegerNumberArrayLike,
+  dimensionality: number,
+  vectorized_coefficients: Float64Array,
+  results: VectorArray = <VectorArray><unknown>arrayLike(t),
+  skip?: Uint8Array
+): VectorArray => {
+    const n = t.length
+    
+    let t_i: number
+    let t2: number
+    let t3: number
+
+    let coefficients_offset: number
+    let a: number
+    let b: number
+    let c: number
+    let d: number
+    const dimensionality_times_4 = 4 * dimensionality;
+    const axis_times_4 = 4 * axis;
+    
+    if (skip) {
+      for (let i = 0; i < n; i++) {
+        if (skip[i] !== 0) continue;
+
+        t_i = t[i];
+        t2 = t_i * t_i;
+        t3 = t_i * t2;
+        coefficients_offset = (dimensionality_times_4 * coefficient_indices[i]) + axis_times_4;
+        a = vectorized_coefficients[coefficients_offset++];
+        b = vectorized_coefficients[coefficients_offset++];
+        c = vectorized_coefficients[coefficients_offset++];
+        d = vectorized_coefficients[coefficients_offset++];
+        results[i] = a * t3 + b * t2 + c * t_i + d;
+      }
+    }
+    else {
+      for (let i = 0; i < n; i++) {
+        t_i = t[i];
+        t2 = t_i * t_i;
+        t3 = t_i * t2;
+        coefficients_offset = (dimensionality_times_4 * coefficient_indices[i]) + axis_times_4;
+        a = vectorized_coefficients[coefficients_offset++];
+        b = vectorized_coefficients[coefficients_offset++];
+        c = vectorized_coefficients[coefficients_offset++];
+        d = vectorized_coefficients[coefficients_offset++];
+        results[i] = a * t3 + b * t2 + c * t_i + d;
+      }
+    }
+
+    return results;
+  }
+
 /**
  * Calculates vector component for the derivative of the curve segment at time t
  * @param t time along curve segment
@@ -218,7 +275,6 @@ export function secondDerivativeAtT_vectorized<
   const n = t.length
   
   let t_i: number
-  let t2: number
 
   let coefficients_offset: number
   let a: number
@@ -226,7 +282,6 @@ export function secondDerivativeAtT_vectorized<
 
   for (let i = 0; i < n; i++) {
     t_i = t[i]
-    t2 = t_i * t_i
     coefficients_offset = 4 * coefficient_indices[i]
     a = vectorized_coefficients[coefficients_offset + 0]
     b = vectorized_coefficients[coefficients_offset + 1]

@@ -21,7 +21,7 @@ import {
   CurveMapper,
 } from './core/interfaces';
 import { SegmentedCurveMapper } from './curve-mappers/segmented-curve-mapper';
-import { derivativeAtT, findRootsOfT, findRootsOfT_vectorized, secondDerivativeAtT, valueAtT, valueAtT_vectorized } from './core/spline-segment';
+import { axisValueAtT_vectorized, derivativeAtT, findRootsOfT, findRootsOfT_vectorized, secondDerivativeAtT, valueAtT, valueAtT_vectorized } from './core/spline-segment';
 import { NumericalCurveMapper } from './curve-mappers/numerical-curve-mapper';
 import { clamp, clamp_vectorized, copyValues } from './core/utils';
 import { arrayLike, NumberArrayLike } from './core/array';
@@ -149,8 +149,10 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
    * @param target optional target vector
    * @returns position as vector
    */
-  getPointAtTime(t: number, target?: VectorType) : Vector {
-    t = clamp(t, 0.0, 1.0);
+  getPointAtTime(t: number, target?: VectorType, clampInput = true) : Vector {
+    if (clampInput)
+      t = clamp(t, 0.0, 1.0);
+
     if (t === 0) {
       return copyValues(this.points[0], target);
     } else if (t === 1) {
@@ -159,10 +161,12 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
     return this._curveMapper.evaluateForT(valueAtT, t, target);
   }
 
-  getPointAtTime_vectorized<TArray extends NumberArrayLike>(t: TArray, target: VectorArray = <VectorArray><unknown>arrayLike(t, this.dim)): VectorArray {
+  getPointAtTime_vectorized<TArray extends NumberArrayLike>(t: TArray, target: VectorArray = <VectorArray><unknown>arrayLike(t, this.dim), clampInput = true): VectorArray {
     const n = t.length;
     const skip = new Uint8Array(n);
-    t = clamp_vectorized(t, 0.0, 1.0);
+
+    if (clampInput)
+      t = clamp_vectorized(t, 0.0, 1.0);
 
     const dim = this.dim;
     let k: number
@@ -194,6 +198,34 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
     return this._curveMapper.evaluateForT_vectorized<TArray>(valueAtT_vectorized, t, target, skip)
   }
 
+  getAxisValuesAtTime_vectorized<TArray extends NumberArrayLike>(t: TArray, axis: number, target: VectorArray = <VectorArray><unknown>arrayLike(t), clampInput = true): VectorArray {
+    const n = t.length;
+    const skip = new Uint8Array(n);
+
+    if (clampInput)
+      t = clamp_vectorized(t, 0.0, 1.0);
+
+    const point_0 = this.points[0][axis];
+    const point_1 = this.points[this.points.length - 1][axis];
+
+    for (let i = 0; i < n; i++) {
+      if (t[i] === 0) {
+        target[i] = point_0;
+        skip[i] = 1;
+      }
+      else if (t[i] === 1) {
+        if (this.closed)
+          target[i] = point_0;
+        else
+          target[i] = point_1;
+        
+        skip[i] = 1;
+      }
+    }
+
+    return this._curveMapper.evaluateForT_vectorized<TArray>(axisValueAtT_vectorized(axis), t, target, skip)
+  }
+
   /**
    * Interpolate a point at the given position.
    * @param position position on curve (0..1)
@@ -201,12 +233,16 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
    */
   getPointAt<T extends VectorType>(position:number, target: T) : T
   getPointAt(position:number) : Vector
-  getPointAt(position:number, target?:VectorType) : Vector {
-    return this.getPointAtTime(this.getTimeFromPosition(position), target);
+  getPointAt(position:number, target?:VectorType, clampInput = true) : Vector {
+    return this.getPointAtTime(this.getTimeFromPosition(position, clampInput), target, clampInput);
   }
 
-  getPointAt_vectorized<PositionArray extends NumberArrayLike>(position: PositionArray, target?: VectorArray): VectorArray {
-    return this.getPointAtTime_vectorized(this.getTimeFromPosition_vectorized(position), target)
+  getPointAt_vectorized<PositionArray extends NumberArrayLike>(position: PositionArray, target?: VectorArray, clampInput = true): VectorArray {
+    return this.getPointAtTime_vectorized(this.getTimeFromPosition_vectorized(position, clampInput), target, clampInput);
+  }
+
+  getAxisValues_vectorized<PositionArray extends NumberArrayLike>(position: PositionArray, axis: number, target?: VectorArray, clampInput = true): VectorArray {
+    return this.getAxisValuesAtTime_vectorized(this.getTimeFromPosition_vectorized(position, clampInput), axis, target, clampInput);
   }
 
   /**
