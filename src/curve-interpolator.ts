@@ -21,7 +21,7 @@ import {
   CurveMapper,
 } from './core/interfaces';
 import { SegmentedCurveMapper } from './curve-mappers/segmented-curve-mapper';
-import { axisValueAtT_vectorized, derivativeAtT, findRootsOfT, findRootsOfT_vectorized, secondDerivativeAtT, valueAtT, valueAtT_vectorized } from './core/spline-segment';
+import { axisValueAtT_vectorized, axisValueAtT_vectorized_custom, derivativeAtT, findRootsOfT, findRootsOfT_vectorized, secondDerivativeAtT, valueAtT, valueAtT_vectorized } from './core/spline-segment';
 import { NumericalCurveMapper } from './curve-mappers/numerical-curve-mapper';
 import { clamp, clamp_vectorized, copyValues } from './core/utils';
 import { arrayLike, NumberArrayLike } from './core/array';
@@ -239,6 +239,34 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
     }
 
     return this._curveMapper.evaluateForT_vectorized<TArray>(axisValueAtT_vectorized(axis), t, target, skip)
+  }
+
+  getAxisValuesAtTime_vectorized_custom<TArray extends NumberArrayLike>(t: TArray, axis: number, target: VectorArray = <VectorArray><unknown>arrayLike(t), clampInput = true, offset = 0, stride = 1): VectorArray {
+    const n = t.length;
+    const skip = new Uint8Array(n);
+
+    if (clampInput)
+      t = clamp_vectorized(t, 0.0, 1.0);
+
+    const point_0 = this.points[0][axis];
+    const point_1 = this.points[this.points.length - 1][axis];
+
+    for (let i = 0; i < n; i++) {
+      if (t[i] === 0) {
+        target[(i * stride) + offset] = point_0;
+        skip[i] = 1;
+      }
+      else if (t[i] === 1) {
+        if (this.closed)
+          target[(i * stride) + offset] = point_0;
+        else
+          target[(i * stride) + offset] = point_1;
+        
+        skip[i] = 1;
+      }
+    }
+
+    return this._curveMapper.evaluateForT_vectorized<TArray>(axisValueAtT_vectorized_custom(axis, stride, offset), t, target, skip)
   }
 
   /**

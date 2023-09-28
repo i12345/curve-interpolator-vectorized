@@ -150,16 +150,16 @@ export function valueAtT_vectorized<
 }
 
 export const axisValueAtT_vectorized = <
-  TArray extends NumberArrayLike,
-  VectorArray extends NumberArrayLike,
->(axis: number) => (
-  t: TArray,
-  coefficient_indices: IntegerNumberArrayLike,
-  dimensionality: number,
-  vectorized_coefficients: Float64Array,
-  results: VectorArray = <VectorArray><unknown>arrayLike(t),
-  skip?: Uint8Array
-): VectorArray => {
+      TArray extends NumberArrayLike,
+      VectorArray extends NumberArrayLike,
+    >(axis: number) => (
+      t: TArray,
+      coefficient_indices: IntegerNumberArrayLike,
+      dimensionality: number,
+      vectorized_coefficients: Float64Array,
+      results: VectorArray = <VectorArray><unknown>arrayLike(t),
+      skip?: Uint8Array
+    ): VectorArray => {
     const n = t.length
     
     let t_i: number
@@ -200,6 +200,66 @@ export const axisValueAtT_vectorized = <
         c = vectorized_coefficients[coefficients_offset++];
         d = vectorized_coefficients[coefficients_offset++];
         results[i] = a * t3 + b * t2 + c * t_i + d;
+      }
+    }
+
+    return results;
+  }
+
+
+export const axisValueAtT_vectorized_custom = <
+      TArray extends NumberArrayLike,
+      VectorArray extends NumberArrayLike,
+    >(axis: number, stride = 1, offset = 0) => (
+      t: TArray,
+      coefficient_indices: IntegerNumberArrayLike,
+      dimensionality: number,
+      vectorized_coefficients: Float64Array,
+      results: VectorArray = <VectorArray><unknown>arrayLike(t),
+      skip?: Uint8Array
+    ): VectorArray => {
+    const n = t.length
+    
+    let t_i: number
+    let t2: number
+    let t3: number
+
+    let coefficients_offset: number
+    let a: number
+    let b: number
+    let c: number
+    let d: number
+    const dimensionality_times_4 = 4 * dimensionality;
+    const axis_times_4 = 4 * axis;
+    
+    let result_i = offset;
+      
+    if (skip) {
+      for (let i = 0; i < n; i++, result_i += stride) {
+        if (skip[i] !== 0) continue;
+
+        t_i = t[i];
+        t2 = t_i * t_i;
+        t3 = t_i * t2;
+        coefficients_offset = (dimensionality_times_4 * coefficient_indices[i]) + axis_times_4;
+        a = vectorized_coefficients[coefficients_offset++];
+        b = vectorized_coefficients[coefficients_offset++];
+        c = vectorized_coefficients[coefficients_offset++];
+        d = vectorized_coefficients[coefficients_offset++];
+        results[result_i] = a * t3 + b * t2 + c * t_i + d;
+      }
+    }
+    else {
+      for (let i = 0; i < n; i++, result_i += stride) {
+        t_i = t[i];
+        t2 = t_i * t_i;
+        t3 = t_i * t2;
+        coefficients_offset = (dimensionality_times_4 * coefficient_indices[i]) + axis_times_4;
+        a = vectorized_coefficients[coefficients_offset++];
+        b = vectorized_coefficients[coefficients_offset++];
+        c = vectorized_coefficients[coefficients_offset++];
+        d = vectorized_coefficients[coefficients_offset++];
+        results[result_i] = a * t3 + b * t2 + c * t_i + d;
       }
     }
 
