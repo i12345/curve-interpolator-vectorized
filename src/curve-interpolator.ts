@@ -107,6 +107,17 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
     return this._curveMapper.getU(l / this.length);
   }
 
+  getPositionFromLength_vectorized<LengthArray extends NumberArrayLike, UArray extends NumberArrayLike>(length: LengthArray, u: UArray = <UArray><unknown>arrayLike(length), clampInput = false): UArray {
+    const l = clampInput ? clamp_vectorized(length, 0, this.length) : length;
+    
+    const n = length.length;
+    const this_length = this.length;
+    for (let i = 0; i < n; i++)
+      l[i] /= this_length;
+
+    return this._curveMapper.getU_vectorized(l, u)
+  }
+
   /**
    *
    * @param position position on curve (0..1)
@@ -114,6 +125,10 @@ export default class CurveInterpolator<VectorArray extends NumberArrayLike = Flo
    */
   getLengthAt(position = 1, clampInput = false) : number {
     return this._curveMapper.lengthAt(clampInput ? clamp(position, 0, 1) : position);
+  }
+
+  getLengthAt_vectorized<UArray extends NumberArrayLike, LengthArray extends NumberArrayLike>(position: UArray, result?: LengthArray, clampInput = false): LengthArray {
+    return this._curveMapper.lengthAt_vectorized(clampInput ? clamp_vectorized(position, 0, 1) : position, result);
   }
 
   /**
