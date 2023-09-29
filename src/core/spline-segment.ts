@@ -463,6 +463,7 @@ export function findRootsOfT_vectorized<
   let mul_2_a: number
   let sqrt_D: number
   let sqr_B: number
+  let mul_3_a: number
   let mul_27_a_a: number
   let b_div_3_mul_a: number
 
@@ -471,6 +472,7 @@ export function findRootsOfT_vectorized<
   let root_1: number
   let root_2: number
 
+  const EPS_local = EPS;
   const EPS_negative = -EPS;
   const EPS_positive = 1 + EPS;
 
@@ -483,6 +485,8 @@ export function findRootsOfT_vectorized<
       b = coefficients_vectorized[coefficients_offset++];
       c = coefficients_vectorized[coefficients_offset++];
       d = coefficients_vectorized[coefficients_offset++];
+
+      mul_3_a = 3 * a;
 
       // x = d - lookup[i];
       // d = x
@@ -498,11 +502,11 @@ export function findRootsOfT_vectorized<
 
         abs_a = Math.abs(a);
 
-        if (abs_a < EPS) { // Quadratic case, ax^2+bx+c=0
+        if (abs_a < EPS_local) { // Quadratic case, ax^2+bx+c=0
           // getQuadRoots(b, c, d);
 
-          if (abs_a < EPS) { // Linear case, ax+b=0
-            if (Math.abs(b) < EPS) roots_n = 0; // Degenerate case
+          if (abs_a < EPS_local) { // Linear case, ax+b=0
+            if (Math.abs(b) < EPS_local) roots_n = 0; // Degenerate case
             else {
               roots_n = 1;
               root_0 = -c / b;
@@ -510,7 +514,7 @@ export function findRootsOfT_vectorized<
           }
           else {
             const D = b * b - 4 * a * c;
-            if (Math.abs(D) < EPS) {
+            if (Math.abs(D) < EPS_local) {
               roots_n = 1;
               root_0 = -b / (2 * a);
             }
@@ -527,17 +531,18 @@ export function findRootsOfT_vectorized<
         }
         else {
           // Convert to depressed cubic t^3+pt+q = 0 (subst x = t - b/3a)
+          sqr_B = b * b;
+          mul_27_a_a = 9 * mul_3_a * a;
           // const p = (3 * a * c - b * b) / (3 * a * a);
           // const q = (2 * b * b * b - 9 * a * b * c + 27 * a * a * d) / (27 * a * a * a);
-          const p = (c - b * b) / a;
-          sqr_B = b * b;
-          mul_27_a_a = 27 * a * a;
-          const q = (2 * sqr_B * b - 9 * a * b * c + mul_27_a_a * d) / (mul_27_a_a * a);
 
-          if (Math.abs(p) < EPS) { // p = 0 -> t^3 = -q -> t = -q^1/3
+          const p = (mul_3_a * c - sqr_B) / (mul_3_a * a);
+          const q = (2 * sqr_B * b - 3 * mul_3_a * b * c + mul_27_a_a * d) / (mul_27_a_a * a);
+
+          if (Math.abs(p) < EPS_local) { // p = 0 -> t^3 = -q -> t = -q^1/3
             roots_n = 1;
             root_0 = Math.cbrt(-q);
-          } else if (Math.abs(q) < EPS) { // q = 0 -> t^3 + pt = 0 -> t(t^2+p)=0
+          } else if (Math.abs(q) < EPS_local) { // q = 0 -> t^3 + pt = 0 -> t(t^2+p)=0
             root_0 = 0;
             if (p < 0) {
               roots_n = 3;
@@ -550,7 +555,7 @@ export function findRootsOfT_vectorized<
             }
           } else {
             const D = q * q / 4 + p * p * p / 27;
-            if (Math.abs(D) < EPS) {       // D = 0 -> two roots
+            if (Math.abs(D) < EPS_local) {       // D = 0 -> two roots
               roots_n = 2;
               // root_2 is tmp variable
               root_2 = 1.5 * q / p;
@@ -579,15 +584,15 @@ export function findRootsOfT_vectorized<
           case 0:
             break;
           case 1:
-            root_0 -= b / (3 * a);
+            root_0 -= b / mul_3_a;
             break;
           case 2:
-            b_div_3_mul_a = b / (3 * a);
+            b_div_3_mul_a = b / mul_3_a;
             root_0 -= b_div_3_mul_a;
             root_1 -= b_div_3_mul_a;
             break;
           case 3:
-            b_div_3_mul_a = b / (3 * a);
+            b_div_3_mul_a = b / mul_3_a;
             root_0 -= b_div_3_mul_a;
             root_1 -= b_div_3_mul_a;
             root_2 -= b_div_3_mul_a;
@@ -718,11 +723,13 @@ export function findRootsOfT_vectorized<
       b = coefficients_vectorized[coefficients_offset++];
       c = coefficients_vectorized[coefficients_offset++];
       d = coefficients_vectorized[coefficients_offset++];
-  
+
+      mul_3_a = 3 * a;
+
       // x = d - lookup[i];
       // d = x
       d -= lookup[i];
-  
+
       if (a === 0 && b === 0 && c === 0 && d === 0) {
         //   return [0]; // whole segment matches - how to deal with this?
         results[i] = 0;
@@ -730,14 +737,14 @@ export function findRootsOfT_vectorized<
       else {
         // getCubicRoots(a, b, c, x = d)
         // getCubicRoots(a: number, b: number, c: number, d: number)
-  
+
         abs_a = Math.abs(a);
-  
-        if (abs_a < EPS) { // Quadratic case, ax^2+bx+c=0
+
+        if (abs_a < EPS_local) { // Quadratic case, ax^2+bx+c=0
           // getQuadRoots(b, c, d);
-  
-          if (abs_a < EPS) { // Linear case, ax+b=0
-            if (Math.abs(b) < EPS) roots_n = 0; // Degenerate case
+
+          if (abs_a < EPS_local) { // Linear case, ax+b=0
+            if (Math.abs(b) < EPS_local) roots_n = 0; // Degenerate case
             else {
               roots_n = 1;
               root_0 = -c / b;
@@ -745,11 +752,11 @@ export function findRootsOfT_vectorized<
           }
           else {
             const D = b * b - 4 * a * c;
-            if (Math.abs(D) < EPS) {
+            if (Math.abs(D) < EPS_local) {
               roots_n = 1;
               root_0 = -b / (2 * a);
             }
-      
+    
             if (D > 0) {
               roots_n = 2;
               sqrt_D = Math.sqrt(D);
@@ -762,17 +769,18 @@ export function findRootsOfT_vectorized<
         }
         else {
           // Convert to depressed cubic t^3+pt+q = 0 (subst x = t - b/3a)
+          sqr_B = b * b;
+          mul_27_a_a = 9 * mul_3_a * a;
           // const p = (3 * a * c - b * b) / (3 * a * a);
           // const q = (2 * b * b * b - 9 * a * b * c + 27 * a * a * d) / (27 * a * a * a);
-          const p = (c - b * b) / a;
-          sqr_B = b * b;
-          mul_27_a_a = 27 * a * a;
-          const q = (2 * sqr_B * b - 9 * a * b * c + mul_27_a_a * d) / (mul_27_a_a * a);
-  
-          if (Math.abs(p) < EPS) { // p = 0 -> t^3 = -q -> t = -q^1/3
+
+          const p = (mul_3_a * c - sqr_B) / (mul_3_a * a);
+          const q = (2 * sqr_B * b - 3 * mul_3_a * b * c + mul_27_a_a * d) / (mul_27_a_a * a);
+
+          if (Math.abs(p) < EPS_local) { // p = 0 -> t^3 = -q -> t = -q^1/3
             roots_n = 1;
             root_0 = Math.cbrt(-q);
-          } else if (Math.abs(q) < EPS) { // q = 0 -> t^3 + pt = 0 -> t(t^2+p)=0
+          } else if (Math.abs(q) < EPS_local) { // q = 0 -> t^3 + pt = 0 -> t(t^2+p)=0
             root_0 = 0;
             if (p < 0) {
               roots_n = 3;
@@ -785,7 +793,7 @@ export function findRootsOfT_vectorized<
             }
           } else {
             const D = q * q / 4 + p * p * p / 27;
-            if (Math.abs(D) < EPS) {       // D = 0 -> two roots
+            if (Math.abs(D) < EPS_local) {       // D = 0 -> two roots
               roots_n = 2;
               // root_2 is tmp variable
               root_2 = 1.5 * q / p;
@@ -808,27 +816,27 @@ export function findRootsOfT_vectorized<
             }
           }
         }
-  
+
         // Convert back from depressed cubic
         switch (roots_n) {
           case 0:
             break;
           case 1:
-            root_0 -= b / (3 * a);
+            root_0 -= b / mul_3_a;
             break;
           case 2:
-            b_div_3_mul_a = b / (3 * a);
+            b_div_3_mul_a = b / mul_3_a;
             root_0 -= b_div_3_mul_a;
             root_1 -= b_div_3_mul_a;
             break;
           case 3:
-            b_div_3_mul_a = b / (3 * a);
+            b_div_3_mul_a = b / mul_3_a;
             root_0 -= b_div_3_mul_a;
             root_1 -= b_div_3_mul_a;
             root_2 -= b_div_3_mul_a;
             break;
         }
-  
+
         // return roots.filter(t => t > -EPS && t <= 1 + EPS).map(t => clamp(t, 0, 1));
         switch (root_index) {
           case 0:
@@ -862,7 +870,7 @@ export function findRootsOfT_vectorized<
                 break;
             }
             break;
-        
+      
           case 1:
             switch (roots_n) {
               case 0:
@@ -901,7 +909,7 @@ export function findRootsOfT_vectorized<
                 break;
             }
             break;
-        
+      
           case 2:
             if (root_0 > EPS_negative && root_0 <= EPS_positive &&
               root_1 > EPS_negative && root_1 <= EPS_positive &&
@@ -910,7 +918,7 @@ export function findRootsOfT_vectorized<
             else
               results[i] = NaN;
             break;
-        
+      
           case -1:
             switch (roots_n) {
               case 0:
